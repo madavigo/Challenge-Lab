@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nginx-deployer-binding
+  namespace: nginx-app
+subjects:
+  - kind: User
+    name: dev-user          # must match the CN field in the certificate exactly
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role                # RoleBinding (not ClusterRoleBinding) — scoped to nginx-app only
+  name: nginx-deployer
+  apiGroup: rbac.authorization.k8s.io

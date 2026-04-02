@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-html
+  namespace: nginx-app
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>swampthing.online — K8s Challenge Lab</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 680px; margin: 80px auto; color: #1a1a2e; line-height: 1.6; padding: 0 20px; }
+        h1 { color: #512fc9; }
+        code { background: #f0eeff; color: #512fc9; padding: 2px 8px; border-radius: 4px; font-size: 0.9em; }
+        .badge { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 8px; font-size: 0.85em; margin-left: 8px; }
+        hr { border: none; border-top: 1px solid #eee; margin: 32px 0; }
+      </style>
+    </head>
+    <body>
+      <h1>Deployed via Kubernetes RBAC <span class="badge">HTTPS</span></h1>
+      <p>
+        This page was deployed by <code>dev-user</code> — a restricted Kubernetes user
+        with no cluster-admin rights, authenticated via a certificate signed by the
+        cluster CA through a <code>CertificateSigningRequest</code>.
+      </p>
+      <hr>
+      <p><strong>Stack:</strong></p>
+      <ul>
+        <li>Kubernetes 1.29 bootstrapped with <code>kubeadm</code></li>
+        <li>Calico CNI with NetworkPolicy enforcement</li>
+        <li>TLS certificate issued by Let's Encrypt via cert-manager</li>
+        <li>Deployed via GitOps (ArgoCD)</li>
+      </ul>
+    </body>
+    </html>

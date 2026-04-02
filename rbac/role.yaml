@@ -1,0 +1,24 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nginx-deployer
+  namespace: nginx-app
+rules:
+  # Deploy and manage the nginx workload
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Create and manage the Service, ConfigMap for nginx HTML
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Create and manage the Ingress resource
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  # Read pod status and logs for monitoring/debugging
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Notably absent: secrets, nodes, namespaces, clusterroles, persistentvolumes
+  # dev-user cannot read TLS secrets, escalate privileges, or see cluster-wide resources

@@ -1,0 +1,16 @@
+# Generated credentials — never commit these
+rbac/dev-user.key
+rbac/dev-user.csr
+rbac/dev-user.crt
+rbac/dev-user-kubeconfig.yaml
+
+# Any kubeconfig files
+*-kubeconfig.yaml
+*.kubeconfig
+
+# SSH keys
+*.pem
+*.key
+
+# macOS
+.DS_Store

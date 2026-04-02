@@ -1,0 +1,40 @@
+#!/bin/bash
+# argocd/install-argocd.sh — Run on control-plane as admin
+# Installs ArgoCD and exposes the UI via NodePort.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo "==> Creating argocd namespace and installing ArgoCD"
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+echo "==> Waiting for argocd-server to be available (up to 120s)"
+kubectl wait --for=condition=Available deployment/argocd-server \
+  -n argocd --timeout=120s
+
+echo "==> Exposing ArgoCD UI via NodePort"
+kubectl patch svc argocd-server -n argocd \
+  -p '{"spec": {"type": "NodePort"}}'
+
+ARGOCD_PORT=$(kubectl get svc argocd-server -n argocd \
+  -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+
+CONTROL_PLANE_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
+echo ""
+echo "==> ArgoCD UI: https://${CONTROL_PLANE_IP}:${ARGOCD_PORT}"
+echo "    Username: admin"
+echo -n "    Password: "
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d && echo
+
+echo ""
+echo "==> Applying nginx ArgoCD Application"
+kubectl apply -f "${SCRIPT_DIR}/application.yaml"
+
+echo ""
+echo "==> ArgoCD application status:"
+kubectl get application nginx-app -n argocd
