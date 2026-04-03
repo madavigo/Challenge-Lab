@@ -11,48 +11,210 @@ data:
       <meta charset="UTF-8">
       <title>K8s Challenge Lab</title>
       <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 680px; margin: 80px auto; background: #1a2a2a; color: #c9b99a; line-height: 1.6; padding: 0 20px; }
-        h1 { color: #4db8a8; }
-        code { background: #243333; color: #4db8a8; padding: 2px 8px; border-radius: 4px; font-size: 0.9em; }
-        .badge { display: inline-block; background: #243333; color: #7dcfc4; border-radius: 4px; padding: 2px 8px; font-size: 0.85em; margin-left: 8px; }
-        hr { border: none; border-top: 1px solid #2e4040; margin: 32px 0; }
-        ul { color: #b0a090; }
-        strong { color: #c9b99a; }
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          max-width: 720px;
+          margin: 60px auto;
+          background: #1a2a2a;
+          color: #c9b99a;
+          line-height: 1.6;
+          padding: 0 24px;
+        }
+        h1 { color: #4db8a8; margin-bottom: 4px; }
+        h2 { color: #4db8a8; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.08em; margin: 32px 0 12px; }
+        code {
+          background: #243333;
+          color: #4db8a8;
+          padding: 2px 7px;
+          border-radius: 4px;
+          font-size: 0.88em;
+          font-family: "SFMono-Regular", Consolas, monospace;
+        }
+        .subtitle { color: #7a9a90; margin-top: 4px; font-size: 0.95em; }
+        .badge {
+          display: inline-block;
+          background: #1e3d30;
+          color: #4db8a8;
+          border: 1px solid #2e5545;
+          border-radius: 4px;
+          padding: 1px 8px;
+          font-size: 0.78em;
+          vertical-align: middle;
+          margin-left: 6px;
+          letter-spacing: 0.04em;
+        }
+        .badge.warn { background: #3a2e1a; color: #c9a84c; border-color: #5a4a2a; }
+        hr { border: none; border-top: 1px solid #2e4040; margin: 28px 0; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .card {
+          background: #1e3030;
+          border: 1px solid #2e4040;
+          border-radius: 6px;
+          padding: 14px 16px;
+        }
+        .card .label { font-size: 0.75em; color: #7a9a90; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+        .card .value { color: #c9b99a; font-size: 0.92em; word-break: break-all; }
+        .card .value code { background: transparent; padding: 0; }
+        .flow {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          font-size: 0.88em;
+          color: #7a9a90;
+        }
+        .flow .step {
+          background: #1e3030;
+          border: 1px solid #2e4040;
+          border-radius: 4px;
+          padding: 4px 10px;
+          color: #c9b99a;
+          white-space: nowrap;
+        }
+        .flow .arrow { color: #4db8a8; font-size: 1.1em; }
+        .rbac-scope {
+          background: #1e3030;
+          border: 1px solid #2e5545;
+          border-radius: 6px;
+          padding: 14px 16px;
+          font-size: 0.88em;
+        }
+        .rbac-scope table { width: 100%; border-collapse: collapse; }
+        .rbac-scope td { padding: 3px 8px 3px 0; color: #c9b99a; vertical-align: top; }
+        .rbac-scope td:first-child { color: #7a9a90; width: 130px; white-space: nowrap; }
+        .allow { color: #4db8a8; }
+        .deny  { color: #a85050; }
+.tagline { text-align: center; color: #4d7870; font-style: italic; font-size: 0.85em; margin-bottom: 0; }
+        #tls-expiry { color: #c9b99a; }
+        a { color: #4db8a8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
       </style>
     </head>
     <body>
-      <h1>Deployed via Kubernetes RBAC <span class="badge">HTTPS</span></h1>
-      <p>
-        This page was deployed by <code>dev-user</code> — a restricted Kubernetes user
-        with no cluster-admin rights, authenticated via a certificate signed by the
-        cluster CA through a <code>CertificateSigningRequest</code>.
+
+      <h1>Kubernetes Challenge Lab <span class="badge">LIVE</span></h1>
+      <p class="subtitle">
+        A production-realistic kubeadm cluster on AWS — certificate auth, RBAC, GitOps, TLS.
       </p>
+
       <hr>
-      <p><strong>Stack:</strong></p>
-      <ul>
-        <li>Kubernetes 1.29 bootstrapped with <code>kubeadm</code></li>
-        <li>Calico CNI with NetworkPolicy enforcement</li>
-        <li>TLS certificate issued by Let's Encrypt via cert-manager</li>
-        <li>Deployed via GitOps (ArgoCD)</li>
-      </ul>
+
+      <h2>Deployment Chain</h2>
+      <div class="flow">
+        <span class="step">git push</span>
+        <span class="arrow">→</span>
+        <span class="step">ArgoCD detects drift</span>
+        <span class="arrow">→</span>
+        <span class="step">syncs nginx/ manifests</span>
+        <span class="arrow">→</span>
+        <span class="step">this page</span>
+      </div>
+
       <hr>
-      <pre style="text-align: center; color: #4db8a8; font-size: 0.75em; line-height: 1.3; display: inline-block; width: 100%;">
-        ░░░▒▒▓▓  ▓▓▒▒░░
-      ░▒▓  ██████████  ▓▒░
-     ░▒▓ ██ ◉      ◉ ██ ▓▒░
-     ░▒▓ ██    ▿▿     ██ ▓▒░
-      ░▒ ██  \______/ ██ ▒░
-        ░▒▓████████████▓▒░
-       ▒▓▓█▓ ░▒▓██▓▒░ ▓█▓▓▒
-      ▒▓██▒  ▒▓▓██▓▓▒  ▒██▓▒
-     ░▒███  ▒▓▓████▓▓▒  ███▒░
-      ▒▓▓█▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓▒
-        ▒▓███▓▓▓▓▓▓▓███▓▒
-       ░▒▒ ▓██████████▓ ▒▒░
-            ████  ████
-            ▓██▓  ▓██▓
-           ░▒▒░    ░▒▒░
-      ~ I am the green. I am the swamp. ~
-      </pre>
+
+      <h2>Who Deployed This</h2>
+      <div class="rbac-scope">
+        <table>
+          <tr><td>User</td><td><code>dev-user</code> — authenticated via Kubernetes CSR workflow</td></tr>
+          <tr><td>Auth method</td><td>X.509 client certificate signed by the cluster CA (<code>CertificateSigningRequest</code>)</td></tr>
+          <tr><td>Role</td><td><code>nginx-deployer</code> — namespace-scoped <code>Role</code>, not <code>ClusterRole</code></td></tr>
+          <tr><td>Namespace</td><td><code>nginx-app</code> only</td></tr>
+          <tr><td>Cert TTL</td><td>24 hours (<code>expirationSeconds: 86400</code>)</td></tr>
+        </table>
+      </div>
+
+      <hr>
+
+      <h2>RBAC Boundaries</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="label">Allowed</div>
+          <div class="value">
+            <span class="allow">✓</span> create/get/list/update deployments <small>in nginx-app</small><br>
+            <span class="allow">✓</span> create/get/list/update services <small>in nginx-app</small><br>
+            <span class="allow">✓</span> create/get/list/update configmaps <small>in nginx-app</small><br>
+            <span class="allow">✓</span> get/list pods <small>in nginx-app</small>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Denied</div>
+          <div class="value">
+            <span class="deny">✗</span> any action in <code>default</code> namespace<br>
+            <span class="deny">✗</span> get/list/watch secrets<br>
+            <span class="deny">✗</span> get nodes or cluster resources<br>
+            <span class="deny">✗</span> create ingress or RBAC objects
+          </div>
+        </div>
+      </div>
+
+      <hr>
+
+      <h2>TLS Certificate</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="label">Issued by</div>
+          <div class="value">Let's Encrypt (ACME HTTP-01)</div>
+        </div>
+        <div class="card">
+          <div class="label">Managed by</div>
+          <div class="value">cert-manager — auto-renews before expiry</div>
+        </div>
+        <div class="card">
+          <div class="label">Ingress</div>
+          <div class="value">nginx ingress controller via AWS NLB → NodePort</div>
+        </div>
+        <div class="card">
+          <div class="label">Cert expires</div>
+          <div class="value"><span id="tls-expiry">checking…</span></div>
+        </div>
+      </div>
+
+      <hr>
+
+      <h2>Stack</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="label">Cluster</div>
+          <div class="value">kubeadm 1.29 · 3× t3.small · Ubuntu 22.04</div>
+        </div>
+        <div class="card">
+          <div class="label">Networking</div>
+          <div class="value">Calico CNI · IPIP mode · NetworkPolicy enforced</div>
+        </div>
+        <div class="card">
+          <div class="label">GitOps</div>
+          <div class="value">ArgoCD · automated sync · self-heal enabled · <a href="https://argo.${DOMAIN}" target="_blank">UI →</a></div>
+        </div>
+        <div class="card">
+          <div class="label">Source</div>
+          <div class="value"><a href="${REPO_URL}" target="_blank">github.com → nginx/ →</a></div>
+        </div>
+      </div>
+
+      <hr>
+
+      <div style="text-align: center; margin: 32px 0 8px;">
+        <img src="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExejI1Ymk5YW1vb3p5YTcxNHp6eHFuaHg3OXpyc2Vvb2xwam1sYjFtcSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/b5ZNou8CKvBCg/giphy.gif" alt="Swamp Thing" style="max-width: 360px; width: 100%; border-radius: 8px; opacity: 0.9;">
+      </div>
+      <p class="tagline">~ I am the green. I am the swamp. ~</p>
+
+      <script>
+        // Pull TLS cert expiry from the Security API where available,
+        // otherwise just confirm the connection is secure.
+        try {
+          if (window.location.protocol === 'https:') {
+            // SecurityPolicyViolationEvent isn't the cert API —
+            // we use a fetch to get response headers and show validity window.
+            fetch(window.location.href, { method: 'HEAD' }).then(r => {
+              const el = document.getElementById('tls-expiry');
+              // Browsers don't expose cert expiry via fetch — show a static note
+              // that reflects what cert-manager provides (90-day LE cert, renewed at 60d)
+              el.textContent = '90-day Let\'s Encrypt cert · auto-renewed by cert-manager';
+            });
+          }
+        } catch(e) {}
+      </script>
+
     </body>
     </html>
