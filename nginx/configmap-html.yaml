@@ -184,11 +184,11 @@ data:
         </div>
         <div class="card">
           <div class="label">GitOps</div>
-          <div class="value">ArgoCD · automated sync · self-heal enabled · <a href="https://argo.${DOMAIN}" target="_blank">UI →</a></div>
+          <div class="value">ArgoCD · automated sync · self-heal enabled · <a href="https://argo.swampthing.online" target="_blank">UI →</a></div>
         </div>
         <div class="card">
           <div class="label">Source</div>
-          <div class="value"><a href="${REPO_URL}" target="_blank">github.com → nginx/ →</a></div>
+          <div class="value"><a href="https://github.com/madavigo/Challenge-Lab/tree/main/nginx" target="_blank">github.com → nginx/ →</a></div>
         </div>
       </div>
 
