@@ -162,6 +162,7 @@ This creates:
 Copy the kubeconfig to your local machine:
 ```bash
 scp -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>:~/Challenge-Lab/dev-user-kubeconfig.yaml rbac/dev-user-kubeconfig.yaml
+# Note: the file is written to ~/Challenge-Lab/ (the script's working directory)
 ```
 
 Verify access boundaries from local machine:
@@ -244,9 +245,11 @@ NLB_DNS=$(aws elbv2 describe-load-balancers \
   --query 'LoadBalancers[0].DNSName' --output text)
 echo "NLB DNS: $NLB_DNS"
 
-# Create listeners on 80 and 443
+# Create listener on port 80
 aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
   --protocol TCP --port 80 --default-actions Type=forward,TargetGroupArn=$TG_HTTP
+
+# Create listener on port 443 — run this separately, do not skip
 aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
   --protocol TCP --port 443 --default-actions Type=forward,TargetGroupArn=$TG_HTTPS
 ```
