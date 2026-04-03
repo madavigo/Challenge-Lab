@@ -36,8 +36,23 @@ data:
         <li>Deployed via GitOps (ArgoCD)</li>
       </ul>
       <hr>
-      <div style="text-align: center; margin-top: 32px;">
-        <img src="https://p.kagi.com/proxy/Swamp-Thing-1989-3000-1000.jpg?c=dvsHBTu7WpagfxSkLuYhxQLcY-qACb05FQ8eYpRcXjPKBQqZyOrHB6l-cYcXeIq7CUA3fsObu-3du9zOSvTNjuz9ecEIYanuHiOHFOc5uQc%3D" alt="Swamp Thing" style="max-width: 100%; border-radius: 8px; opacity: 0.85;">
-      </div>
+      <pre style="text-align: center; color: #4db8a8; font-size: 0.75em; line-height: 1.3; display: inline-block; width: 100%;">
+        ░░░▒▒▓▓  ▓▓▒▒░░
+      ░▒▓  ██████████  ▓▒░
+     ░▒▓ ██ ◉      ◉ ██ ▓▒░
+     ░▒▓ ██    ▿▿     ██ ▓▒░
+      ░▒ ██  \______/ ██ ▒░
+        ░▒▓████████████▓▒░
+       ▒▓▓█▓ ░▒▓██▓▒░ ▓█▓▓▒
+      ▒▓██▒  ▒▓▓██▓▓▒  ▒██▓▒
+     ░▒███  ▒▓▓████▓▓▒  ███▒░
+      ▒▓▓█▓▓▓▓▓▓▓▓▓▓▓▓▓█▓▓▒
+        ▒▓███▓▓▓▓▓▓▓███▓▒
+       ░▒▒ ▓██████████▓ ▒▒░
+            ████  ████
+            ▓██▓  ▓██▓
+           ░▒▒░    ░▒▒░
+      ~ I am the green. I am the swamp. ~
+      </pre>
     </body>
     </html>
