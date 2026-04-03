@@ -5,6 +5,7 @@
 # What this removes:
 #   - 3 EC2 instances (control-plane, worker-01, worker-02)
 #   - Elastic IP (released, not just disassociated)
+#   - NLB, target groups, and listeners (if provisioned)
 #   - Security group
 #   - Key pair (AWS-side only — local .pem is not deleted)
 #
@@ -47,6 +48,17 @@ if [[ -n "$INSTANCE_IDS" ]]; then
   EIP_ALLOC_IDS=$(echo $EIP_ALLOC_IDS | xargs)
 fi
 
+# Find NLB
+NLB_ARN=$(aws elbv2 describe-load-balancers \
+  --query 'LoadBalancers[?LoadBalancerName==`challenge-lab-nlb`].LoadBalancerArn' \
+  --output text 2>/dev/null || true)
+[[ "$NLB_ARN" == "None" ]] && NLB_ARN=""
+
+# Find target groups
+TG_ARNS=$(aws elbv2 describe-target-groups \
+  --query 'TargetGroups[?starts_with(TargetGroupName, `challenge-lab-`)].TargetGroupArn' \
+  --output text 2>/dev/null || true)
+
 # Find security group
 SG_ID=$(aws ec2 describe-security-groups \
   --filters "Name=group-name,Values=k8s-challenge-lab" \
@@ -58,6 +70,8 @@ echo ""
 echo "Resources to be deleted:"
 echo "  Instances:     ${INSTANCE_IDS:-none}"
 echo "  Elastic IPs:   ${EIP_ALLOC_IDS:-none}"
+echo "  NLB:           ${NLB_ARN:-none}"
+echo "  Target Groups: ${TG_ARNS:-none}"
 echo "  Security Group: ${SG_ID:-none}"
 echo "  Key Pair:      challenge-lab"
 echo ""
@@ -78,6 +92,23 @@ if [[ -n "$EIP_ALLOC_IDS" ]]; then
   for ALLOC_ID in $EIP_ALLOC_IDS; do
     echo "==> Releasing Elastic IP: $ALLOC_ID"
     aws ec2 release-address --allocation-id "$ALLOC_ID"
+  done
+fi
+
+# Delete NLB (must be deleted before target groups)
+if [[ -n "$NLB_ARN" ]]; then
+  echo "==> Deleting NLB: $NLB_ARN"
+  aws elbv2 delete-load-balancer --load-balancer-arn "$NLB_ARN"
+  echo "    Waiting for NLB to be deleted..."
+  aws elbv2 wait load-balancers-deleted --load-balancer-arns "$NLB_ARN"
+  echo "    NLB deleted."
+fi
+
+# Delete target groups
+if [[ -n "$TG_ARNS" ]]; then
+  for TG_ARN in $TG_ARNS; do
+    echo "==> Deleting target group: $TG_ARN"
+    aws elbv2 delete-target-group --target-group-arn "$TG_ARN"
   done
 fi
 

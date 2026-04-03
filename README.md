@@ -186,48 +186,83 @@ bash cert-manager/install-ingress-controller.sh
 
 This script auto-detects a worker node's public IP via AWS CLI and patches the ingress service with `externalIPs`. On bare kubeadm there is no cloud LB controller, so the LoadBalancer service would otherwise stay `<pending>` indefinitely.
 
-Next, provision the AWS Network Load Balancer to route external traffic to the NodePorts:
+#### Provision the AWS Network Load Balancer
+
+An NLB routes ports 80 and 443 across both workers via NodePorts. Required for the ACME HTTP-01 challenge and stable DNS. Costs ~$0.20/day — tear it down with `infrastructure/teardown.sh` when not in use.
+
+First, look up the values you need:
 
 ```bash
-# Get the NodePorts
-HTTP_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
-HTTPS_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+# NodePorts assigned by Kubernetes
+HTTP_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+HTTPS_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
 
-# Get VPC/subnet/instance info
-VPC_ID=<your-vpc-id>
-SUBNET_ID=<your-subnet-id>
-W1_ID=<worker-01-instance-id>
-W2_ID=<worker-02-instance-id>
+# VPC and subnet (from the same default VPC used during provisioning)
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
+  --query 'Vpcs[0].VpcId' --output text)
+SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=defaultForAz,Values=true" \
+  --query 'Subnets[0].SubnetId' --output text)
 
-# Create target groups
-TG_HTTP=$(aws elbv2 create-target-group --name challenge-lab-http --protocol TCP --port $HTTP_NP --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP --query 'TargetGroups[0].TargetGroupArn' --output text)
-TG_HTTPS=$(aws elbv2 create-target-group --name challenge-lab-https --protocol TCP --port $HTTPS_NP --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP --query 'TargetGroups[0].TargetGroupArn' --output text)
+# Worker instance IDs
+W1_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=k8s-worker-01" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+W2_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=k8s-worker-02" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
-# Register both workers
-aws elbv2 register-targets --target-group-arn $TG_HTTP --targets Id=$W1_ID Id=$W2_ID
-aws elbv2 register-targets --target-group-arn $TG_HTTPS --targets Id=$W1_ID Id=$W2_ID
-
-# Create NLB
-NLB_ARN=$(aws elbv2 create-load-balancer --name challenge-lab-nlb --type network --subnets $SUBNET_ID --query 'LoadBalancers[0].LoadBalancerArn' --output text)
-NLB_DNS=$(aws elbv2 describe-load-balancers --load-balancer-arns $NLB_ARN --query 'LoadBalancers[0].DNSName' --output text)
-echo "NLB DNS: $NLB_DNS"
-
-# Create listeners
-aws elbv2 create-listener --load-balancer-arn $NLB_ARN --protocol TCP --port 80 --default-actions Type=forward,TargetGroupArn=$TG_HTTP
-aws elbv2 create-listener --load-balancer-arn $NLB_ARN --protocol TCP --port 443 --default-actions Type=forward,TargetGroupArn=$TG_HTTPS
+echo "HTTP NodePort: $HTTP_NP  HTTPS NodePort: $HTTPS_NP"
+echo "VPC: $VPC_ID  Subnet: $SUBNET_ID"
+echo "Worker-01: $W1_ID  Worker-02: $W2_ID"
 ```
 
-At your DNS registrar, add two CNAME records pointing to the NLB DNS name:
+Then create the NLB:
+
+```bash
+# Create target groups
+TG_HTTP=$(aws elbv2 create-target-group \
+  --name challenge-lab-http --protocol TCP --port $HTTP_NP \
+  --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP \
+  --query 'TargetGroups[0].TargetGroupArn' --output text)
+
+TG_HTTPS=$(aws elbv2 create-target-group \
+  --name challenge-lab-https --protocol TCP --port $HTTPS_NP \
+  --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP \
+  --query 'TargetGroups[0].TargetGroupArn' --output text)
+
+# Register both workers in both target groups
+aws elbv2 register-targets --target-group-arn $TG_HTTP  --targets Id=$W1_ID Id=$W2_ID
+aws elbv2 register-targets --target-group-arn $TG_HTTPS --targets Id=$W1_ID Id=$W2_ID
+
+# Create the NLB
+NLB_ARN=$(aws elbv2 create-load-balancer \
+  --name challenge-lab-nlb --type network --subnets $SUBNET_ID \
+  --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+
+NLB_DNS=$(aws elbv2 describe-load-balancers \
+  --load-balancer-arns $NLB_ARN \
+  --query 'LoadBalancers[0].DNSName' --output text)
+echo "NLB DNS: $NLB_DNS"
+
+# Create listeners on 80 and 443
+aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
+  --protocol TCP --port 80 --default-actions Type=forward,TargetGroupArn=$TG_HTTP
+aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
+  --protocol TCP --port 443 --default-actions Type=forward,TargetGroupArn=$TG_HTTPS
+```
+
+At your DNS registrar add two CNAME records pointing to `$NLB_DNS`:
 ```
 nginx.swampthing.online → <NLB DNS name>
 argo.swampthing.online  → <NLB DNS name>
 ```
 
-Wait for DNS propagation (~5 min), then verify:
+Verify propagation:
 ```bash
 dig nginx.swampthing.online +short
 dig argo.swampthing.online +short
-# Both should resolve to the NLB DNS name and its IP
 ```
 
 Then install cert-manager:
