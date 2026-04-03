@@ -87,16 +87,17 @@ users:
 EOF
 
 echo ""
-echo "==> Verifying access (expect yes/no as shown):"
-# auth can-i returns exit code 1 for "no" — use || true so set -e doesn't trip
+echo "==> Verifying RBAC (using admin kubeconfig with --as impersonation):"
+# Use the node's local admin kubeconfig to impersonate dev-user — avoids the
+# hairpin NAT issue where the node cannot reach its own Elastic IP.
 echo -n "  create deployments in nginx-app [expect: yes]: "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i create deployments -n nginx-app || true
+kubectl auth can-i create deployments -n nginx-app --as="${USERNAME}" || true
 echo -n "  create deployments in default   [expect: no]:  "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i create deployments -n default || true
+kubectl auth can-i create deployments -n default --as="${USERNAME}" || true
 echo -n "  get secrets in nginx-app        [expect: no]:  "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i get secrets -n nginx-app || true
+kubectl auth can-i get secrets -n nginx-app --as="${USERNAME}" || true
 echo -n "  get nodes                       [expect: no]:  "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i get nodes || true
+kubectl auth can-i get nodes --as="${USERNAME}" || true
 
 echo ""
 echo "==> Done. Kubeconfig written to ${USERNAME}-kubeconfig.yaml"
