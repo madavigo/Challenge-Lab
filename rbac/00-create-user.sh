@@ -49,7 +49,10 @@ echo "==> Certificate details:"
 openssl x509 -in "${USERNAME}.crt" -noout -subject -dates
 
 echo "==> Building kubeconfig for ${USERNAME}"
-CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+# Use the public Elastic IP so this kubeconfig works from outside the VPC.
+# The node's ~/.kube/config uses the private IP — we override it here.
+PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+CLUSTER_SERVER="https://${PUBLIC_IP}:6443"
 CLUSTER_CA=$(kubectl config view --raw --minify \
   -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
 
@@ -79,14 +82,15 @@ EOF
 
 echo ""
 echo "==> Verifying access (expect yes/no as shown):"
+# auth can-i returns exit code 1 for "no" — use || true so set -e doesn't trip
 echo -n "  create deployments in nginx-app [expect: yes]: "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i create deployments -n nginx-app
+kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i create deployments -n nginx-app || true
 echo -n "  create deployments in default   [expect: no]:  "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i create deployments -n default
+kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i create deployments -n default || true
 echo -n "  get secrets in nginx-app        [expect: no]:  "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i get secrets -n nginx-app
+kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i get secrets -n nginx-app || true
 echo -n "  get nodes                       [expect: no]:  "
-kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i get nodes
+kubectl --kubeconfig="${USERNAME}-kubeconfig.yaml" auth can-i get nodes || true
 
 echo ""
 echo "==> Done. Kubeconfig written to ${USERNAME}-kubeconfig.yaml"

@@ -36,11 +36,11 @@ Internet ──────────►│   │       control-plane         
 
 ## Prerequisites (local machine)
 
-- AWS account with EC2 access
+- AWS account with EC2 access and billing enabled (t3.medium is not free-tier eligible)
 - `aws` CLI configured (`aws configure`)
 - `kubectl` installed
 - `openssl` installed
-- SSH key pair for EC2 access
+- SSH key pair created: `aws ec2 create-key-pair --key-name challenge-lab --query 'KeyMaterial' --output text > ~/.ssh/challenge-lab.pem && chmod 400 ~/.ssh/challenge-lab.pem`
 
 ---
 
@@ -48,105 +48,184 @@ Internet ──────────►│   │       control-plane         
 
 ### 1. AWS Infrastructure
 
-See [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md) for EC2 provisioning, security group rules, Elastic IP, and DNS setup.
+Provision EC2 instances, security group, and Elastic IP by following [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md).
+
+At the end of that step you will have:
+- 3 running instances: `k8s-control-plane` (t3.medium), `k8s-worker-01`, `k8s-worker-02` (t3.small)
+- Elastic IP associated to control-plane
+- Security group with all required rules
+
+---
 
 ### 2. Bootstrap all nodes
 
-Run on **every node** (control-plane and both workers):
+SSH into **each node** and clone the repo, then run the prereqs script:
 
 ```bash
-scp cluster/00-prereqs.sh ubuntu@<NODE-IP>:~
-ssh ubuntu@<NODE-IP> bash 00-prereqs.sh
+ssh -i ~/.ssh/challenge-lab.pem ubuntu@<NODE-IP>
 ```
+
+Then on each node:
+```bash
+git clone https://github.com/madavigo/Challenge-Lab.git
+cd Challenge-Lab
+bash cluster/00-prereqs.sh
+```
+
+Do this for all three nodes (control-plane and both workers). Can be done in parallel.
+
+---
 
 ### 3. Initialize the control plane
 
-Run on the **control-plane node only**:
+On the **control-plane node only**:
 
 ```bash
-scp cluster/01-init-control-plane.sh ubuntu@<CONTROL-PLANE-IP>:~
-ssh ubuntu@<CONTROL-PLANE-IP> bash 01-init-control-plane.sh
+bash cluster/01-init-control-plane.sh
 ```
 
-Save the `kubeadm join` command from the output.
+This will:
+- Run `kubeadm init` using the private IP as endpoint (required for AWS EC2 — nodes cannot reach their own Elastic IP)
+- Configure `~/.kube/config` on the node (uses private IP)
+- Write `~/admin-external.conf` with the Elastic IP (for your local machine)
+- Print the `kubeadm join` command — **save this output**
 
-Copy the admin kubeconfig to your local machine:
+Copy the external kubeconfig to your local machine:
 
 ```bash
-scp ubuntu@<CONTROL-PLANE-IP>:~/.kube/config ~/.kube/config
-# Edit the server address if needed to use the Elastic IP
+scp -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>:~/admin-external.conf ~/.kube/config
 ```
+
+Verify from your local machine:
+```bash
+kubectl get nodes
+# control-plane shows NotReady — expected until Calico is installed
+```
+
+---
 
 ### 4. Join worker nodes
 
-On **each worker**, set the values from the kubeadm init output:
+On **each worker node**, using the token and hash from the kubeadm init output:
 
 ```bash
-scp cluster/02-join-workers.sh ubuntu@<WORKER-IP>:~
-ssh ubuntu@<WORKER-IP> \
-  CONTROL_PLANE_IP=<ip> TOKEN=<token> CA_HASH=<hash> \
-  bash 02-join-workers.sh
+cd Challenge-Lab
+CONTROL_PLANE_IP=<private-ip> TOKEN=<token> CA_HASH=<hash> bash cluster/02-join-workers.sh
 ```
+
+---
 
 ### 5. Install Calico CNI
 
-From your local machine (using the admin kubeconfig):
+From your **local machine**:
 
 ```bash
 bash cluster/03-install-calico.sh
 ```
 
-Verify: `kubectl get nodes` — all three should show `Ready`.
+Verify all nodes are Ready:
+```bash
+kubectl get nodes
+# All three should show Ready
+```
+
+---
 
 ### 6. Apply RBAC and create dev-user
 
+On the **control-plane node**:
+
 ```bash
+cd Challenge-Lab
 bash rbac/01-apply-rbac.sh
 bash rbac/00-create-user.sh
 ```
 
-This creates `dev-user` via the Kubernetes CSR workflow and writes `rbac/dev-user-kubeconfig.yaml`.
+This creates:
+- `nginx-app` namespace
+- `nginx-deployer` Role and RoleBinding (scoped to `nginx-app` only)
+- Calico NetworkPolicy (deny-all ingress except from ingress controller)
+- `dev-user` certificate via the Kubernetes CSR workflow
+- `dev-user-kubeconfig.yaml` (gitignored — contains private key)
 
-> **Note:** `dev-user-kubeconfig.yaml` contains a private key. It is listed in `.gitignore` and must not be committed.
+Copy the kubeconfig to your local machine:
+```bash
+scp -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>:~/Challenge-Lab/dev-user-kubeconfig.yaml rbac/dev-user-kubeconfig.yaml
+```
 
-Verify access boundaries:
-
+Verify access boundaries from local machine:
 ```bash
 kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i create deployments -n nginx-app  # yes
+kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i create deployments -n default    # no
 kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i get secrets -n nginx-app         # no
 kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i get nodes                        # no
 ```
 
-### 7. Install Ingress Controller and cert-manager
+---
+
+### 7. Install ingress controller and cert-manager
+
+From your **local machine**:
 
 ```bash
 bash cert-manager/install-ingress-controller.sh
-# Wait for LoadBalancer IP, create DNS A record (see infrastructure/aws-setup.md)
+```
 
+Watch for the LoadBalancer external IP (takes ~60s):
+```bash
+kubectl get svc ingress-nginx-controller -n ingress-nginx --watch
+```
+
+Once you have the IP, create a DNS A record at your registrar:
+```
+nginx.swampthing.online → <LoadBalancer external IP>
+```
+
+Wait for DNS propagation (~5 min), then verify:
+```bash
+dig nginx.swampthing.online +short
+```
+
+Then install cert-manager:
+```bash
 bash cert-manager/install-cert-manager.sh
 ```
 
+---
+
 ### 8. Deploy Nginx as dev-user
 
+From your **local machine**:
+
 ```bash
-bash nginx/deploy-as-dev-user.sh
+bash nginx/deploy-as-dev-user.sh rbac/dev-user-kubeconfig.yaml
 ```
 
-Watch TLS cert issuance (as admin):
-
+Watch TLS certificate issuance (as admin):
 ```bash
 kubectl get certificate -n nginx-app --watch
+# READY transitions False → True within ~60s once DNS has propagated
 ```
 
-Once `READY: True`, visit [https://nginx.swampthing.online](https://nginx.swampthing.online).
+Test:
+```bash
+curl -I https://nginx.swampthing.online
+# Expect HTTP/2 200 with a valid Let's Encrypt cert
+```
 
-### 9. Install ArgoCD (GitOps bonus)
+---
+
+### 9. Install ArgoCD (GitOps)
+
+From your **local machine**:
 
 ```bash
 bash argocd/install-argocd.sh
 ```
 
-The ArgoCD Application watches the `nginx/` directory of this repo. Any commit to those manifests automatically syncs to the cluster within ~3 minutes.
+This installs ArgoCD and creates an Application that watches the `nginx/` directory of this repo. Any commit to those manifests automatically syncs to the cluster within ~3 minutes.
+
+To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — watch ArgoCD detect drift and sync.
 
 ---
 
@@ -157,10 +236,10 @@ The ArgoCD Application watches the `nginx/` directory of this repo. Any commit t
 ├── infrastructure/
 │   └── aws-setup.md                ← EC2 provisioning, security groups, DNS
 ├── cluster/
-│   ├── 00-prereqs.sh               ← Run on ALL nodes
+│   ├── 00-prereqs.sh               ← Run on ALL nodes after cloning repo
 │   ├── 01-init-control-plane.sh    ← Run on control-plane only
 │   ├── 02-join-workers.sh          ← Run on each worker
-│   └── 03-install-calico.sh        ← Run from local machine (admin kubeconfig)
+│   └── 03-install-calico.sh        ← Run from local machine
 ├── rbac/
 │   ├── 00-create-user.sh           ← CSR → cert → kubeconfig workflow
 │   ├── 01-apply-rbac.sh            ← Namespace, Role, RoleBinding, NetworkPolicy
@@ -201,7 +280,7 @@ See [`DESIGN.md`](DESIGN.md) for full rationale. Summary:
 
 ## Security Notes
 
-- Port 6443 (API server) and port 22 (SSH) are restricted to a specific IP in the security group — the API server is not exposed to the internet.
+- Port 22 (SSH) is restricted to your IP only. Port 6443 allows your IP (external kubectl) and the node security group (worker → control-plane communication).
 - `dev-user` has a `Role` (not `ClusterRole`) scoped to `nginx-app` only. They cannot read secrets, list nodes, or access any other namespace.
 - The Calico NetworkPolicy denies all ingress to nginx pods except from the ingress controller namespace.
 - Certificates are issued with a 24-hour TTL (`expirationSeconds: 86400`). In production, rotation would be automated.

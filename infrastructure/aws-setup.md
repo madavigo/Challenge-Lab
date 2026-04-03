@@ -30,8 +30,14 @@ aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
 aws ec2 describe-subnets --filters "Name=defaultForAz,Values=true" \
   --query 'Subnets[0].{SubnetId:SubnetId,AZ:AvailabilityZone}' --output table && \
 aws ec2 describe-key-pairs --query 'KeyPairs[*].KeyName' --output table
+```
+
+## Key Pair
+
+Create a key pair in the AWS Console and download the `.pem` file. Store it securely — you need it to SSH into all three nodes.
 
 # Create key pair if one doesn't already exist
+```bash
 aws ec2 create-key-pair \
   --key-name challenge-lab \
   --query 'KeyMaterial' \
@@ -39,6 +45,14 @@ aws ec2 create-key-pair \
 chmod 400 ~/.ssh/challenge-lab.pem && \
 echo "Key saved and permissions set:" && \
 ls -la ~/.ssh/challenge-lab.pem
+```
+
+```bash
+# SSH to control-plane
+ssh -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>
+
+# SSH to workers
+ssh -i ~/.ssh/challenge-lab.pem ubuntu@<WORKER-PUBLIC-IP>
 ```
 
 ### About Inbound Rules
@@ -132,14 +146,14 @@ echo "All security group rules applied."
 ### Spin up ec2 instances now that you have the SG in place
 Replace AMI, SG_ID and SUBNET with your own values.
 ```bash
-AMI=ami-0fc5d935ebf8bc3bc
+AMI=ami-00de3875b03809ec5
 SG_ID=sg-################
 SUBNET=subnet-################
 
-# Control plane - t3.medium
+# Control plane - t3.small
 CP_ID=$(aws ec2 run-instances \
   --image-id $AMI \
-  --instance-type t3.medium \
+  --instance-type t3.small \
   --key-name challenge-lab \
   --security-group-ids $SG_ID \
   --subnet-id $SUBNET \
@@ -189,7 +203,7 @@ aws ec2 associate-address \
 
 ## DNS
 
-Once the ingress controller is installed and you have the LoadBalancer external IP:
+ONLY AFTER the ingress controller is installed and you have the LoadBalancer external IP:
 
 1. Log into your domain registrar (swampthing.online)
 2. Add an A record: `nginx` → `<LoadBalancer external IP>`
@@ -203,16 +217,3 @@ dig nginx.swampthing.online +short
 # Should return the LoadBalancer IP
 ```
 
-## Key Pair
-
-Create a key pair in the AWS Console and download the `.pem` file. Store it securely — you need it to SSH into all three nodes.
-
-```bash
-chmod 400 ~/.ssh/challenge-lab.pem
-
-# SSH to control-plane
-ssh -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>
-
-# SSH to workers
-ssh -i ~/.ssh/challenge-lab.pem ubuntu@<WORKER-PUBLIC-IP>
-```
