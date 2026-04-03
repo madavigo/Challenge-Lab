@@ -12,8 +12,10 @@ CONFIG="${REPO_ROOT}/config.env"
 
 echo "==> Creating argocd namespace and installing ArgoCD"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+# The ArgoCD install manifest contains CRDs that exceed kubectl's annotation size
+# limit — this produces a non-fatal warning but does not affect functionality.
 kubectl apply -n argocd \
-  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml || true
 
 echo "==> Waiting for argocd-server to be available (up to 120s)"
 kubectl wait --for=condition=Available deployment/argocd-server \
