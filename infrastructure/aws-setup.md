@@ -1,8 +1,9 @@
 # AWS Infrastructure Setup
 
-## EC2 Instances
+## Setting up EC2 Instances
 
-Launch 3 instances from the AWS Console or CLI.
+We will launch 3 instances in AWS via the cli tool after gathering some information and setting up security group rules.
+(AWS will not allow t3.medium on the free tier, billing must be enabled even to use free credits)
 
 | Node | Name Tag | Type | AMI |
 |------|----------|------|-----|
@@ -10,9 +11,167 @@ Launch 3 instances from the AWS Console or CLI.
 | Worker 1 | `k8s-worker-01` | t3.small | Ubuntu 22.04 LTS |
 | Worker 2 | `k8s-worker-02` | t3.small | Ubuntu 22.04 LTS |
 
-**AMI:** Search "ubuntu-jammy-22.04-amd64-server" in Community AMIs (us-east-1: `ami-0fc5d935ebf8bc3bc`).
+**AMI:** Search "ubuntu-jammy-22.04-amd64-server" in Community AMIs (us-east-1: `ami-00de3875b03809ec5`).
 
 All three instances must be in the **same VPC, same subnet, same Security Group**.
+
+```bash
+# First we locate the image to be used
+aws ec2 describe-images \
+  --owners 099720109477 \
+  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
+            "Name=state,Values=available" \
+  --query 'sort_by(Images, &CreationDate)[-1].{AMI:ImageId,Name:Name,Date:CreationDate}' \
+  --output table
+
+# Describe VPC, Subnet and Key Pairs
+aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
+  --query 'Vpcs[0].{VpcId:VpcId,CIDR:CidrBlock}' --output table && \
+aws ec2 describe-subnets --filters "Name=defaultForAz,Values=true" \
+  --query 'Subnets[0].{SubnetId:SubnetId,AZ:AvailabilityZone}' --output table && \
+aws ec2 describe-key-pairs --query 'KeyPairs[*].KeyName' --output table
+
+# Create key pair if one doesn't already exist
+aws ec2 create-key-pair \
+  --key-name challenge-lab \
+  --query 'KeyMaterial' \
+  --output text > ~/.ssh/challenge-lab.pem && \
+chmod 400 ~/.ssh/challenge-lab.pem && \
+echo "Key saved and permissions set:" && \
+ls -la ~/.ssh/challenge-lab.pem
+```
+
+### About Inbound Rules
+
+| Port/Range | Protocol | Source | Purpose |
+|---|---|---|---|
+| 22 | TCP | Your IP only | SSH |
+| 6443 | TCP | Your IP only | Kubernetes API server (external kubectl) |
+| 6443 | TCP | Node SG (self) | Kubernetes API server (worker → control-plane) |
+| 2379–2380 | TCP | Node SG (self) | etcd peer communication |
+| 10250–10259 | TCP | Node SG (self) | kubelet, scheduler, controller manager |
+| 10256 | TCP | Node SG (self) | kube-proxy health check |
+| 179 | TCP | Node SG (self) | Calico BGP |
+| 4789 | UDP | Node SG (self) | Calico VXLAN |
+| 30000–32767 | TCP | 0.0.0.0/0 | NodePort range |
+| 80 | TCP | 0.0.0.0/0 | HTTP (Let's Encrypt HTTP01 challenge) |
+| 443 | TCP | 0.0.0.0/0 | HTTPS |
+
+> **Security note:** Port 22 is restricted to your IP only. Port 6443 allows your IP (for kubectl) and the node security group (so workers can join and communicate with the API server). The API server must never be open to 0.0.0.0/0.
+
+"Self" source means the Security Group ID itself — allows all instances in the group to communicate freely on those ports.
+
+### About Outbound Rules
+
+Allow all outbound (default AWS behavior). Nodes need internet access to pull packages and container images.
+
+## Setting Security Group Rules
+
+Create one Security Group shared by all three nodes.
+
+```bash
+# Create a SG using the VPC ID you gathered in the earlier steps
+SG_ID=$(aws ec2 create-security-group \
+  --group-name k8s-challenge-lab \
+  --description "Kubernetes challenge lab - control-plane and workers" \
+  --vpc-id vpc-################ \
+  --query 'GroupId' --output text)
+echo "Security Group ID: $SG_ID"
+
+# Then apply all SG Ingress rules
+SG_ID=sg-#############
+MY_IP=<Your WAN IP) # 
+
+# SSH - your IP only
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 22 --cidr ${MY_IP}/32
+
+# K8s API server - your IP only (external kubectl)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 6443 --cidr ${MY_IP}/32
+
+# K8s API server - node-to-node (workers must reach control-plane to join and communicate)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 6443 --source-group $SG_ID
+
+# etcd peer communication - self (node-to-node)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 2379-2380 --source-group $SG_ID
+
+# kubelet, scheduler, controller manager - self
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 10250-10259 --source-group $SG_ID
+
+# kube-proxy health check - self
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 10256 --source-group $SG_ID
+
+# Calico BGP - self
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 179 --source-group $SG_ID
+
+# Calico VXLAN - self
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol udp --port 4789 --source-group $SG_ID
+
+# NodePort range - public
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0
+
+# HTTP - public (Let's Encrypt HTTP01 challenge)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 80 --cidr 0.0.0.0/0
+
+# HTTPS - public
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol tcp --port 443 --cidr 0.0.0.0/0
+
+echo "All security group rules applied."
+```
+
+### Spin up ec2 instances now that you have the SG in place
+Replace AMI, SG_ID and SUBNET with your own values.
+```bash
+AMI=ami-0fc5d935ebf8bc3bc
+SG_ID=sg-################
+SUBNET=subnet-################
+
+# Control plane - t3.medium
+CP_ID=$(aws ec2 run-instances \
+  --image-id $AMI \
+  --instance-type t3.medium \
+  --key-name challenge-lab \
+  --security-group-ids $SG_ID \
+  --subnet-id $SUBNET \
+  --associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-control-plane},{Key=Project,Value=challenge-lab}]' \
+  --query 'Instances[0].InstanceId' --output text)
+echo "Control-plane: $CP_ID"
+
+# Worker 1 - t3.small
+W1_ID=$(aws ec2 run-instances \
+  --image-id $AMI \
+  --instance-type t3.small \
+  --key-name challenge-lab \
+  --security-group-ids $SG_ID \
+  --subnet-id $SUBNET \
+  --associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-worker-01},{Key=Project,Value=challenge-lab}]' \
+  --query 'Instances[0].InstanceId' --output text)
+echo "Worker-01: $W1_ID"
+
+# Worker 2 - t3.small
+W2_ID=$(aws ec2 run-instances \
+  --image-id $AMI \
+  --instance-type t3.small \
+  --key-name challenge-lab \
+  --security-group-ids $SG_ID \
+  --subnet-id $SUBNET \
+  --associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-worker-02},{Key=Project,Value=challenge-lab}]' \
+  --query 'Instances[0].InstanceId' --output text)
+echo "Worker-02: $W2_ID"
+```
 
 ## Elastic IP
 
@@ -27,33 +186,6 @@ aws ec2 associate-address \
   --instance-id i-XXXXXXXXXXXXXXXXX \
   --allocation-id eipalloc-XXXXXXXXXXXXXXXXX
 ```
-
-## Security Group Rules
-
-Create one Security Group shared by all three nodes.
-
-### Inbound Rules
-
-| Port/Range | Protocol | Source | Purpose |
-|---|---|---|---|
-| 22 | TCP | Your IP only | SSH |
-| 6443 | TCP | Your IP only | Kubernetes API server |
-| 2379–2380 | TCP | Node SG (self) | etcd peer communication |
-| 10250–10259 | TCP | Node SG (self) | kubelet, scheduler, controller manager |
-| 10256 | TCP | Node SG (self) | kube-proxy health check |
-| 179 | TCP | Node SG (self) | Calico BGP |
-| 4789 | UDP | Node SG (self) | Calico VXLAN |
-| 30000–32767 | TCP | 0.0.0.0/0 | NodePort range |
-| 80 | TCP | 0.0.0.0/0 | HTTP (Let's Encrypt HTTP01 challenge) |
-| 443 | TCP | 0.0.0.0/0 | HTTPS |
-
-> **Security note:** Ports 22 and 6443 are restricted to your IP only. The API server must never be open to 0.0.0.0/0.
-
-"Self" source means the Security Group ID itself — allows all instances in the group to communicate freely on those ports.
-
-### Outbound Rules
-
-Allow all outbound (default AWS behavior). Nodes need internet access to pull packages and container images.
 
 ## DNS
 
@@ -76,11 +208,11 @@ dig nginx.swampthing.online +short
 Create a key pair in the AWS Console and download the `.pem` file. Store it securely — you need it to SSH into all three nodes.
 
 ```bash
-chmod 400 ~/.ssh/k8s-challenge.pem
+chmod 400 ~/.ssh/challenge-lab.pem
 
 # SSH to control-plane
-ssh -i ~/.ssh/k8s-challenge.pem ubuntu@<ELASTIC-IP>
+ssh -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>
 
 # SSH to workers
-ssh -i ~/.ssh/k8s-challenge.pem ubuntu@<WORKER-PUBLIC-IP>
+ssh -i ~/.ssh/challenge-lab.pem ubuntu@<WORKER-PUBLIC-IP>
 ```

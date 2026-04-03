@@ -1,6 +1,7 @@
 #!/bin/bash
 # 00-prereqs.sh — Run on ALL nodes (control-plane and both workers)
 # Installs container runtime, kubeadm, kubelet, kubectl, and configures kernel settings.
+# Idempotent — safe to re-run.
 
 set -euo pipefail
 
