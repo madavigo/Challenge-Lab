@@ -1,5 +1,5 @@
 #!/bin/bash
-# argocd/install-argocd.sh — Run on control-plane as admin
+# argocd/install-argocd.sh — Run from local machine as admin
 # Installs ArgoCD and exposes the UI via NodePort.
 
 set -euo pipefail
@@ -15,25 +15,33 @@ echo "==> Waiting for argocd-server to be available (up to 120s)"
 kubectl wait --for=condition=Available deployment/argocd-server \
   -n argocd --timeout=120s
 
-echo "==> Exposing ArgoCD UI via NodePort"
+echo "==> Exposing ArgoCD UI via NodePort (fallback access)"
 kubectl patch svc argocd-server -n argocd \
   -p '{"spec": {"type": "NodePort"}}'
 
+# Wait for NodePort to be assigned
+sleep 3
 ARGOCD_PORT=$(kubectl get svc argocd-server -n argocd \
   -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
 
 CONTROL_PLANE_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
 
 echo ""
-echo "==> ArgoCD UI: https://${CONTROL_PLANE_IP}:${ARGOCD_PORT}"
-echo "    Username: admin"
-echo -n "    Password: "
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d && echo
+echo "==> Applying ArgoCD ingress (argo.swampthing.online)"
+kubectl apply -f "${SCRIPT_DIR}/argocd-ingress.yaml"
 
 echo ""
 echo "==> Applying nginx ArgoCD Application"
 kubectl apply -f "${SCRIPT_DIR}/application.yaml"
+
+echo ""
+echo "==> ArgoCD access:"
+echo "    Via ingress (after DNS): https://argo.swampthing.online"
+echo "    Via NodePort (direct):   https://${CONTROL_PLANE_IP}:${ARGOCD_PORT}"
+echo "    Username: admin"
+echo -n "    Password: "
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d && echo
 
 echo ""
 echo "==> ArgoCD application status:"

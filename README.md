@@ -9,13 +9,16 @@ A production-realistic kubeadm Kubernetes cluster with certificate-based RBAC, G
 ## Architecture
 
 ```
+                         AWS NLB (challenge-lab-nlb)
+                          ports 80 + 443 → NodePorts
+                                   │
                     ┌──────────────────────────────────────┐
                     │              AWS VPC                 │
                     │                                      │
                     │   ┌──────────────────────────────┐   │
 Internet ──────────►│   │       control-plane          │   │
-(kubectl, HTTPS,    │   │       t3.medium (2vCPU/4GB)  │   │
- ArgoCD UI)         │   │       Ubuntu 22.04 LTS       │   │
+(kubectl)           │   │       t3.small (2vCPU/2GB)   │   │
+                    │   │       Ubuntu 22.04 LTS       │   │
                     │   └──────────────┬───────────────┘   │
                     │                  │  kubeadm join     │
                     │        ┌─────────┴──────────┐        │
@@ -25,9 +28,10 @@ Internet ──────────►│   │       control-plane         
                     │  │ t3.small   │    │  t3.small   │   │
                     │  └────────────┘    └─────────────┘   │
                     └──────────────────────────────────────┘
-                                   │
-                              DNS A record
-                    nginx.swampthing.online → LoadBalancer IP
+
+DNS CNAMEs → NLB:
+  nginx.swampthing.online → challenge-lab-nlb-*.elb.us-east-1.amazonaws.com
+  argo.swampthing.online  → challenge-lab-nlb-*.elb.us-east-1.amazonaws.com
 ```
 
 **Stack:** kubeadm 1.29 · Calico CNI · nginx ingress controller · cert-manager · Let's Encrypt · ArgoCD
@@ -51,7 +55,7 @@ Internet ──────────►│   │       control-plane         
 Provision EC2 instances, security group, and Elastic IP by following [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md).
 
 At the end of that step you will have:
-- 3 running instances: `k8s-control-plane` (t3.medium), `k8s-worker-01`, `k8s-worker-02` (t3.small)
+- 3 running instances: `k8s-control-plane`, `k8s-worker-01`, `k8s-worker-02` (all t3.small)
 - Elastic IP associated to control-plane
 - Security group with all required rules
 
@@ -171,19 +175,50 @@ From your **local machine**:
 bash cert-manager/install-ingress-controller.sh
 ```
 
-Watch for the LoadBalancer external IP (takes ~60s):
+This script auto-detects a worker node's public IP via AWS CLI and patches the ingress service with `externalIPs`. On bare kubeadm there is no cloud LB controller, so the LoadBalancer service would otherwise stay `<pending>` indefinitely.
+
+Next, provision the AWS Network Load Balancer to route external traffic to the NodePorts:
+
 ```bash
-kubectl get svc ingress-nginx-controller -n ingress-nginx --watch
+# Get the NodePorts
+HTTP_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+HTTPS_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+
+# Get VPC/subnet/instance info
+VPC_ID=<your-vpc-id>
+SUBNET_ID=<your-subnet-id>
+W1_ID=<worker-01-instance-id>
+W2_ID=<worker-02-instance-id>
+
+# Create target groups
+TG_HTTP=$(aws elbv2 create-target-group --name challenge-lab-http --protocol TCP --port $HTTP_NP --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP --query 'TargetGroups[0].TargetGroupArn' --output text)
+TG_HTTPS=$(aws elbv2 create-target-group --name challenge-lab-https --protocol TCP --port $HTTPS_NP --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP --query 'TargetGroups[0].TargetGroupArn' --output text)
+
+# Register both workers
+aws elbv2 register-targets --target-group-arn $TG_HTTP --targets Id=$W1_ID Id=$W2_ID
+aws elbv2 register-targets --target-group-arn $TG_HTTPS --targets Id=$W1_ID Id=$W2_ID
+
+# Create NLB
+NLB_ARN=$(aws elbv2 create-load-balancer --name challenge-lab-nlb --type network --subnets $SUBNET_ID --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+NLB_DNS=$(aws elbv2 describe-load-balancers --load-balancer-arns $NLB_ARN --query 'LoadBalancers[0].DNSName' --output text)
+echo "NLB DNS: $NLB_DNS"
+
+# Create listeners
+aws elbv2 create-listener --load-balancer-arn $NLB_ARN --protocol TCP --port 80 --default-actions Type=forward,TargetGroupArn=$TG_HTTP
+aws elbv2 create-listener --load-balancer-arn $NLB_ARN --protocol TCP --port 443 --default-actions Type=forward,TargetGroupArn=$TG_HTTPS
 ```
 
-Once you have the IP, create a DNS A record at your registrar:
+At your DNS registrar, add two CNAME records pointing to the NLB DNS name:
 ```
-nginx.swampthing.online → <LoadBalancer external IP>
+nginx.swampthing.online → <NLB DNS name>
+argo.swampthing.online  → <NLB DNS name>
 ```
 
 Wait for DNS propagation (~5 min), then verify:
 ```bash
 dig nginx.swampthing.online +short
+dig argo.swampthing.online +short
+# Both should resolve to the NLB DNS name and its IP
 ```
 
 Then install cert-manager:
@@ -223,9 +258,18 @@ From your **local machine**:
 bash argocd/install-argocd.sh
 ```
 
-This installs ArgoCD and creates an Application that watches the `nginx/` directory of this repo. Any commit to those manifests automatically syncs to the cluster within ~3 minutes.
+This installs ArgoCD, patches the service to NodePort, applies the ArgoCD ingress for `argo.swampthing.online`, and creates an Application that watches the `nginx/` directory of this repo.
 
-To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — watch ArgoCD detect drift and sync.
+The script prints the ArgoCD UI URL and initial admin password. You can also access it directly via NodePort:
+```bash
+ARGOCD_PORT=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+echo "https://<ELASTIC-IP>:${ARGOCD_PORT}"
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+```
+
+ArgoCD UI: `https://argo.swampthing.online` (username: `admin`)
+
+To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — watch ArgoCD detect drift and sync within ~3 minutes.
 
 ---
 
@@ -259,6 +303,7 @@ To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — w
 │   └── install-cert-manager.sh
 ├── argocd/
 │   ├── application.yaml
+│   ├── argocd-ingress.yaml
 │   └── install-argocd.sh
 ├── DESIGN.md                       ← Design decisions and tradeoffs
 └── README.md

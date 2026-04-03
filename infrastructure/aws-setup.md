@@ -7,7 +7,7 @@ We will launch 3 instances in AWS via the cli tool after gathering some informat
 
 | Node | Name Tag | Type | AMI |
 |------|----------|------|-----|
-| Control Plane | `k8s-control-plane` | t3.medium | Ubuntu 22.04 LTS |
+| Control Plane | `k8s-control-plane` | t3.small | Ubuntu 22.04 LTS |
 | Worker 1 | `k8s-worker-01` | t3.small | Ubuntu 22.04 LTS |
 | Worker 2 | `k8s-worker-02` | t3.small | Ubuntu 22.04 LTS |
 
@@ -216,17 +216,22 @@ aws ec2 associate-address \
 
 ## DNS
 
-ONLY AFTER the ingress controller is installed and you have the LoadBalancer external IP:
+ONLY AFTER the NLB is provisioned (see README step 7):
 
 1. Log into your domain registrar (swampthing.online)
-2. Add an A record: `nginx` → `<LoadBalancer external IP>`
+2. Add two CNAME records pointing to the NLB DNS name:
+   - `nginx` → `<NLB DNS name>`
+   - `argo`  → `<NLB DNS name>`
 3. TTL: 300 seconds (5 minutes)
+
+> Use CNAME (not A record) — the NLB DNS name resolves to IPs that can change.
 
 Allow 5–10 minutes for propagation before running the cert-manager step.
 
 Verify propagation:
 ```bash
 dig nginx.swampthing.online +short
-# Should return the LoadBalancer IP
+dig argo.swampthing.online +short
+# Both should return the NLB DNS name and its IP
 ```
 
