@@ -11,6 +11,8 @@ set -euo pipefail
 : "${CA_HASH:?Set CA_HASH to the discovery-token-ca-cert-hash from init output}"
 
 echo "==> Joining cluster at ${CONTROL_PLANE_IP}:6443"
+# Strip sha256: prefix if present — script always re-adds it
+CA_HASH="${CA_HASH#sha256:}"
 sudo kubeadm join "${CONTROL_PLANE_IP}:6443" \
   --token "${TOKEN}" \
   --discovery-token-ca-cert-hash "sha256:${CA_HASH}"

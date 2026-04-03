@@ -231,6 +231,8 @@ bash argocd/install-argocd.sh
 
 This installs ArgoCD, patches the service to NodePort, applies the ArgoCD ingress for `argo.swampthing.online`, and creates an Application that watches the `nginx/` directory of this repo.
 
+> **Expected warning:** During install you may see `The CustomResourceDefinition "applicationsets.argoproj.io" is invalid: metadata.annotations: Too long: must have at most 262144 bytes`. This is a known ArgoCD CRD size issue and is non-fatal — the script handles it with `|| true` and all components install correctly.
+
 The script prints the ArgoCD UI URL and initial admin password. You can also access it directly via NodePort:
 ```bash
 ARGOCD_PORT=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
