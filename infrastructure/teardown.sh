@@ -17,8 +17,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../config.env
-source "${SCRIPT_DIR}/../config.env"
+CONFIG="${SCRIPT_DIR}/../config.env"
+# shellcheck source=../config.env.example
+[[ -f "$CONFIG" ]] && source "$CONFIG" || source "${CONFIG}.example"
 
 echo "==> Looking up challenge-lab resources..."
 

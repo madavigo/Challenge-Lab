@@ -6,9 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-# shellcheck source=../config.env
-source "${REPO_ROOT}/config.env"
+CONFIG="${REPO_ROOT}/config.env"
+# shellcheck source=../config.env.example
+[[ -f "$CONFIG" ]] && source "$CONFIG" || source "${CONFIG}.example"
 
 KUBECONFIG_PATH="${1:-${REPO_ROOT}/rbac/dev-user-kubeconfig.yaml}"
 

@@ -12,9 +12,9 @@ set -euo pipefail
 CERT_MANAGER_VERSION="v1.14.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
-# shellcheck source=../config.env
-source "${REPO_ROOT}/config.env"
+CONFIG="${REPO_ROOT}/config.env"
+# shellcheck source=../config.env.example
+[[ -f "$CONFIG" ]] && source "$CONFIG" || source "${CONFIG}.example"
 
 echo "==> Installing cert-manager ${CERT_MANAGER_VERSION}"
 kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"

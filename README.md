@@ -46,14 +46,12 @@ DNS CNAMEs → NLB:
 - `openssl` installed
 - SSH key pair created: `aws ec2 create-key-pair --key-name challenge-lab --query 'KeyMaterial' --output text > ~/.ssh/challenge-lab.pem && chmod 400 ~/.ssh/challenge-lab.pem`
 
-**Before running any scripts**, copy and fill in `config.env`:
+All scripts source `config.env` automatically, falling back to `config.env.example` if it doesn't exist. The example file has the correct values for this repo, so a fresh `git clone` works without any extra setup. To override (e.g. for your own fork), copy and edit:
 
 ```bash
 cp config.env.example config.env
-# Edit config.env — set DOMAIN, ACME_EMAIL, and REPO_URL
+# Edit DOMAIN, ACME_EMAIL, REPO_URL
 ```
-
-All scripts source this file automatically. The YAML manifests that contain the domain or repo URL are passed through `envsubst` at apply time — the files in git use `${DOMAIN}` / `${REPO_URL}` as placeholders.
 
 ---
 
