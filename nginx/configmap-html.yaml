@@ -85,7 +85,7 @@ data:
         .rbac-scope td:first-child { color: #7a9a90; width: 130px; white-space: nowrap; }
         .allow { color: #4db8a8; }
         .deny  { color: #a85050; }
-.tagline { text-align: center; color: #4d7870; font-style: italic; font-size: 0.85em; margin-bottom: 0; }
+        .tagline { text-align: center; color: #4d7870; font-style: italic; font-size: 0.85em; margin-bottom: 0; }
         #tls-expiry { color: #c9b99a; }
         a { color: #4db8a8; text-decoration: none; }
         a:hover { text-decoration: underline; }
