@@ -214,24 +214,80 @@ aws ec2 associate-address \
   --allocation-id eipalloc-XXXXXXXXXXXXXXXXX
 ```
 
+## Network Load Balancer
+
+Provision the NLB after the ingress controller is installed (README step 7). The NLB routes external ports 80 and 443 to the ingress controller NodePorts on both workers. Required for Let's Encrypt HTTP-01 and stable DNS.
+
+```bash
+# NodePorts assigned by Kubernetes
+HTTP_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+HTTPS_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+
+# VPC and subnet
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
+  --query 'Vpcs[0].VpcId' --output text)
+SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=defaultForAz,Values=true" \
+  --query 'Subnets[0].SubnetId' --output text)
+
+# Worker instance IDs
+W1_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=k8s-worker-01" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+W2_ID=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=k8s-worker-02" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+
+# Create target groups
+TG_HTTP=$(aws elbv2 create-target-group \
+  --name challenge-lab-http --protocol TCP --port $HTTP_NP \
+  --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP \
+  --query 'TargetGroups[0].TargetGroupArn' --output text)
+
+TG_HTTPS=$(aws elbv2 create-target-group \
+  --name challenge-lab-https --protocol TCP --port $HTTPS_NP \
+  --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP \
+  --query 'TargetGroups[0].TargetGroupArn' --output text)
+
+# Register both workers
+aws elbv2 register-targets --target-group-arn $TG_HTTP  --targets Id=$W1_ID Id=$W2_ID
+aws elbv2 register-targets --target-group-arn $TG_HTTPS --targets Id=$W1_ID Id=$W2_ID
+
+# Create the NLB
+NLB_ARN=$(aws elbv2 create-load-balancer \
+  --name challenge-lab-nlb --type network --subnets $SUBNET_ID \
+  --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+
+NLB_DNS=$(aws elbv2 describe-load-balancers \
+  --load-balancer-arns $NLB_ARN \
+  --query 'LoadBalancers[0].DNSName' --output text)
+echo "NLB DNS: $NLB_DNS"
+
+# Create listener on port 80
+aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
+  --protocol TCP --port 80 --default-actions Type=forward,TargetGroupArn=$TG_HTTP
+
+# Create listener on port 443
+aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
+  --protocol TCP --port 443 --default-actions Type=forward,TargetGroupArn=$TG_HTTPS
+```
+
 ## DNS
 
-ONLY AFTER the NLB is provisioned (see README step 7):
+ONLY AFTER the NLB is provisioned:
 
 1. Log into your domain registrar
-2. Add two CNAME records pointing to the NLB DNS name:
+2. Add two CNAME records pointing to `$NLB_DNS`:
    - `nginx` → `<NLB DNS name>`
    - `argo`  → `<NLB DNS name>`
 3. TTL: 300 seconds (5 minutes)
 
-> Use CNAME (not A record) — the NLB DNS name resolves to IPs that can change.
+> Use CNAME (not A record) — the NLB DNS name resolves to IPs that will change.
 
-Allow 5–10 minutes for propagation before running the cert-manager step.
-
-Verify propagation (replace with your domain from `config.env`):
+Verify propagation:
 ```bash
-dig nginx.<YOUR_DOMAIN> +short
-dig argo.<YOUR_DOMAIN> +short
-# Both should return the NLB DNS name and its IP
+dig nginx.swampthing.online +short
+dig argo.swampthing.online +short
 ```
 

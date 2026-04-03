@@ -59,12 +59,15 @@ cp config.env.example config.env
 
 ### 1. AWS Infrastructure
 
-Provision EC2 instances, security group, and Elastic IP by following [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md).
+Follow [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md) completely before moving to step 2. It covers all AWS provisioning in order:
 
-At the end of that step you will have:
-- 3 running instances: `k8s-control-plane`, `k8s-worker-01`, `k8s-worker-02` (all t3.small)
+- Security group and all inbound rules
+- 3 EC2 instances (control-plane, worker-01, worker-02 — all t3.small)
 - Elastic IP associated to control-plane
-- Security group with all required rules
+- Network Load Balancer — optional but recommended (see [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md#network-load-balancer)); provisioned after step 7, then return here
+- DNS CNAME records pointing to the NLB
+
+At the end of the full aws-setup.md flow you will have all infrastructure in place and DNS propagated.
 
 ---
 
@@ -185,86 +188,9 @@ bash cert-manager/install-ingress-controller.sh
 
 This script auto-detects a worker node's public IP via AWS CLI and patches the ingress service with `externalIPs`. On bare kubeadm there is no cloud LB controller, so the LoadBalancer service would otherwise stay `<pending>` indefinitely.
 
-#### Provision the AWS Network Load Balancer
+**Load balancer — recommended:** Return to [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md#network-load-balancer) and follow the **Network Load Balancer** and **DNS** sections. An NLB is the right choice for kubeadm on AWS — it provides stable DNS, routes across both workers, and is required for Let's Encrypt HTTP-01 to succeed. It costs ~$0.20/day and is cleaned up by `infrastructure/teardown.sh`.
 
-An NLB routes ports 80 and 443 across both workers via NodePorts. Required for the ACME HTTP-01 challenge and stable DNS. Costs ~$0.20/day — tear it down with `infrastructure/teardown.sh` when not in use.
-
-First, look up the values you need:
-
-```bash
-# NodePorts assigned by Kubernetes
-HTTP_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
-  -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
-HTTPS_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
-  -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
-
-# VPC and subnet (from the same default VPC used during provisioning)
-VPC_ID=$(aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
-  --query 'Vpcs[0].VpcId' --output text)
-SUBNET_ID=$(aws ec2 describe-subnets --filters "Name=defaultForAz,Values=true" \
-  --query 'Subnets[0].SubnetId' --output text)
-
-# Worker instance IDs
-W1_ID=$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=k8s-worker-01" "Name=instance-state-name,Values=running" \
-  --query 'Reservations[0].Instances[0].InstanceId' --output text)
-W2_ID=$(aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=k8s-worker-02" "Name=instance-state-name,Values=running" \
-  --query 'Reservations[0].Instances[0].InstanceId' --output text)
-
-echo "HTTP NodePort: $HTTP_NP  HTTPS NodePort: $HTTPS_NP"
-echo "VPC: $VPC_ID  Subnet: $SUBNET_ID"
-echo "Worker-01: $W1_ID  Worker-02: $W2_ID"
-```
-
-Then create the NLB:
-
-```bash
-# Create target groups
-TG_HTTP=$(aws elbv2 create-target-group \
-  --name challenge-lab-http --protocol TCP --port $HTTP_NP \
-  --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP \
-  --query 'TargetGroups[0].TargetGroupArn' --output text)
-
-TG_HTTPS=$(aws elbv2 create-target-group \
-  --name challenge-lab-https --protocol TCP --port $HTTPS_NP \
-  --vpc-id $VPC_ID --target-type instance --health-check-protocol TCP \
-  --query 'TargetGroups[0].TargetGroupArn' --output text)
-
-# Register both workers in both target groups
-aws elbv2 register-targets --target-group-arn $TG_HTTP  --targets Id=$W1_ID Id=$W2_ID
-aws elbv2 register-targets --target-group-arn $TG_HTTPS --targets Id=$W1_ID Id=$W2_ID
-
-# Create the NLB
-NLB_ARN=$(aws elbv2 create-load-balancer \
-  --name challenge-lab-nlb --type network --subnets $SUBNET_ID \
-  --query 'LoadBalancers[0].LoadBalancerArn' --output text)
-
-NLB_DNS=$(aws elbv2 describe-load-balancers \
-  --load-balancer-arns $NLB_ARN \
-  --query 'LoadBalancers[0].DNSName' --output text)
-echo "NLB DNS: $NLB_DNS"
-
-# Create listener on port 80
-aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
-  --protocol TCP --port 80 --default-actions Type=forward,TargetGroupArn=$TG_HTTP
-
-# Create listener on port 443 — run this separately, do not skip
-aws elbv2 create-listener --load-balancer-arn $NLB_ARN \
-  --protocol TCP --port 443 --default-actions Type=forward,TargetGroupArn=$TG_HTTPS
-```
-
-At your DNS registrar add two CNAME records pointing to `$NLB_DNS`:
-```
-nginx.swampthing.online → <NLB DNS name>
-argo.swampthing.online  → <NLB DNS name>
-```
-
-Verify propagation:
-```bash
-dig nginx.swampthing.online +short
-dig argo.swampthing.online +short
-```
+> Alternatives exist — `externalIPs` (patch the ingress service with a worker's public IP directly) or raw NodePort access — but both are single-node and not suitable for a reproducible demo. The NLB is the production-appropriate path on AWS without EKS.
 
 Then install cert-manager:
 ```bash
