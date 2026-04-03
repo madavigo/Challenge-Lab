@@ -35,5 +35,9 @@ data:
         <li>TLS certificate issued by Let's Encrypt via cert-manager</li>
         <li>Deployed via GitOps (ArgoCD)</li>
       </ul>
+      <hr>
+      <div style="text-align: center; margin-top: 32px;">
+        <img src="https://p.kagi.com/proxy/Swamp-Thing-1989-3000-1000.jpg?c=dvsHBTu7WpagfxSkLuYhxQLcY-qACb05FQ8eYpRcXjPKBQqZyOrHB6l-cYcXeIq7CUA3fsObu-3du9zOSvTNjuz9ecEIYanuHiOHFOc5uQc%3D" alt="Swamp Thing" style="max-width: 100%; border-radius: 8px; opacity: 0.85;">
+      </div>
     </body>
     </html>
