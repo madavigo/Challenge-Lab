@@ -24,7 +24,7 @@ echo "==> Deploying nginx as $(kubectl config current-context)"
 kubectl apply -f "${SCRIPT_DIR}/configmap-html.yaml"
 kubectl apply -f "${SCRIPT_DIR}/deployment.yaml"
 kubectl apply -f "${SCRIPT_DIR}/service.yaml"
-DOMAIN="${DOMAIN}" envsubst < "${SCRIPT_DIR}/ingress.yaml" | kubectl apply -f -
+kubectl apply -f "${SCRIPT_DIR}/ingress.yaml"
 
 echo ""
 echo "==> Waiting for rollout"

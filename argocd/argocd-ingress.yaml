@@ -11,10 +11,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - argo.${DOMAIN}
+    - argo.swampthing.online
     secretName: argocd-tls-secret
   rules:
-  - host: argo.${DOMAIN}
+  - host: argo.swampthing.online
     http:
       paths:
       - path: /

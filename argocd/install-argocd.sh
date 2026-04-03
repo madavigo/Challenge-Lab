@@ -34,11 +34,11 @@ CONTROL_PLANE_IP=$(aws ec2 describe-instances \
 
 echo ""
 echo "==> Applying ArgoCD ingress (argo.${DOMAIN})"
-DOMAIN="${DOMAIN}" envsubst < "${SCRIPT_DIR}/argocd-ingress.yaml" | kubectl apply -f -
+kubectl apply -f "${SCRIPT_DIR}/argocd-ingress.yaml"
 
 echo ""
 echo "==> Applying nginx ArgoCD Application"
-REPO_URL="${REPO_URL}" envsubst < "${SCRIPT_DIR}/application.yaml" | kubectl apply -f -
+kubectl apply -f "${SCRIPT_DIR}/application.yaml"
 
 echo ""
 echo "==> ArgoCD access:"
