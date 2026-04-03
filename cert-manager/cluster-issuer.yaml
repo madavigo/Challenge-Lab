@@ -4,8 +4,8 @@ metadata:
   name: letsencrypt-prod
 spec:
   acme:
-    # Replace with a real address — Let's Encrypt sends expiry reminders here
-    email: mattdgolden@pm.me
+    # Set via ACME_EMAIL env var — sourced from config.env
+    email: ${ACME_EMAIL}
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-prod-key

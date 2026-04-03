@@ -1,15 +1,20 @@
 #!/bin/bash
-# cert-manager/install-cert-manager.sh — Run on control-plane as admin
+# cert-manager/install-cert-manager.sh — Run from local machine as admin
 # Installs cert-manager and applies the Let's Encrypt ClusterIssuer.
 #
 # Prerequisites:
 #   - Ingress controller is installed and port 80 is reachable from the internet
-#   - DNS A record nginx.swampthing.online → LoadBalancer IP is propagated
+#   - DNS CNAME nginx.<DOMAIN> → NLB is propagated
+#   - config.env is filled in at repo root
 
 set -euo pipefail
 
 CERT_MANAGER_VERSION="v1.14.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# shellcheck source=../config.env
+source "${REPO_ROOT}/config.env"
 
 echo "==> Installing cert-manager ${CERT_MANAGER_VERSION}"
 kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
@@ -21,8 +26,8 @@ kubectl wait --for=condition=Available deployment --all \
 echo "==> Waiting for cert-manager webhook to be fully ready (30s)"
 sleep 30
 
-echo "==> Applying Let's Encrypt ClusterIssuer"
-kubectl apply -f "${SCRIPT_DIR}/cluster-issuer.yaml"
+echo "==> Applying Let's Encrypt ClusterIssuer (email: ${ACME_EMAIL})"
+ACME_EMAIL="${ACME_EMAIL}" envsubst < "${SCRIPT_DIR}/cluster-issuer.yaml" | kubectl apply -f -
 
 echo "==> Waiting for ClusterIssuer to be ready"
 sleep 10

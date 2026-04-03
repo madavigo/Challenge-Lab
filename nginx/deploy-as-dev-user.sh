@@ -4,7 +4,13 @@
 
 set -euo pipefail
 
-KUBECONFIG_PATH="${1:-../rbac/dev-user-kubeconfig.yaml}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# shellcheck source=../config.env
+source "${REPO_ROOT}/config.env"
+
+KUBECONFIG_PATH="${1:-${REPO_ROOT}/rbac/dev-user-kubeconfig.yaml}"
 
 if [[ ! -f "${KUBECONFIG_PATH}" ]]; then
   echo "ERROR: Kubeconfig not found at ${KUBECONFIG_PATH}"
@@ -13,13 +19,12 @@ if [[ ! -f "${KUBECONFIG_PATH}" ]]; then
 fi
 
 export KUBECONFIG="${KUBECONFIG_PATH}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Deploying nginx as $(kubectl config current-context)"
 kubectl apply -f "${SCRIPT_DIR}/configmap-html.yaml"
 kubectl apply -f "${SCRIPT_DIR}/deployment.yaml"
 kubectl apply -f "${SCRIPT_DIR}/service.yaml"
-kubectl apply -f "${SCRIPT_DIR}/ingress.yaml"
+DOMAIN="${DOMAIN}" envsubst < "${SCRIPT_DIR}/ingress.yaml" | kubectl apply -f -
 
 echo ""
 echo "==> Waiting for rollout"

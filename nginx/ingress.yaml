@@ -11,10 +11,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - nginx.swampthing.online
+    - nginx.${DOMAIN}
     secretName: nginx-tls-secret
   rules:
-  - host: nginx.swampthing.online
+  - host: nginx.${DOMAIN}
     http:
       paths:
       - path: /

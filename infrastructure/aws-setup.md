@@ -218,7 +218,7 @@ aws ec2 associate-address \
 
 ONLY AFTER the NLB is provisioned (see README step 7):
 
-1. Log into your domain registrar (swampthing.online)
+1. Log into your domain registrar
 2. Add two CNAME records pointing to the NLB DNS name:
    - `nginx` → `<NLB DNS name>`
    - `argo`  → `<NLB DNS name>`
@@ -228,10 +228,10 @@ ONLY AFTER the NLB is provisioned (see README step 7):
 
 Allow 5–10 minutes for propagation before running the cert-manager step.
 
-Verify propagation:
+Verify propagation (replace with your domain from `config.env`):
 ```bash
-dig nginx.swampthing.online +short
-dig argo.swampthing.online +short
+dig nginx.<YOUR_DOMAIN> +short
+dig argo.<YOUR_DOMAIN> +short
 # Both should return the NLB DNS name and its IP
 ```
 

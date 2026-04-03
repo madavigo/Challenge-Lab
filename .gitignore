@@ -1,3 +1,6 @@
+# Local configuration — copy config.env.example to config.env and fill in your values
+config.env
+
 # Generated credentials — never commit these
 rbac/dev-user.key
 rbac/dev-user.csr

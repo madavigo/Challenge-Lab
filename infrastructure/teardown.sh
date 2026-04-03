@@ -15,6 +15,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../config.env
+source "${SCRIPT_DIR}/../config.env"
+
 echo "==> Looking up challenge-lab resources..."
 
 # Find instances by project tag
@@ -95,5 +99,5 @@ echo "==> Teardown complete."
 echo ""
 echo "To redeploy from scratch:"
 echo "  1. Follow infrastructure/aws-setup.md"
-echo "  2. SSH into each node and: git clone https://github.com/madavigo/Challenge-Lab.git"
+echo "  2. SSH into each node and: git clone ${REPO_URL}"
 echo "  3. Follow README.md steps in order"

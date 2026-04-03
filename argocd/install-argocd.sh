@@ -5,6 +5,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# shellcheck source=../config.env
+source "${REPO_ROOT}/config.env"
 
 echo "==> Creating argocd namespace and installing ArgoCD"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
@@ -24,19 +28,21 @@ sleep 3
 ARGOCD_PORT=$(kubectl get svc argocd-server -n argocd \
   -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
 
-CONTROL_PLANE_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+CONTROL_PLANE_IP=$(aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=k8s-control-plane" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text 2>/dev/null || echo "<ELASTIC-IP>")
 
 echo ""
-echo "==> Applying ArgoCD ingress (argo.swampthing.online)"
-kubectl apply -f "${SCRIPT_DIR}/argocd-ingress.yaml"
+echo "==> Applying ArgoCD ingress (argo.${DOMAIN})"
+DOMAIN="${DOMAIN}" envsubst < "${SCRIPT_DIR}/argocd-ingress.yaml" | kubectl apply -f -
 
 echo ""
 echo "==> Applying nginx ArgoCD Application"
-kubectl apply -f "${SCRIPT_DIR}/application.yaml"
+REPO_URL="${REPO_URL}" envsubst < "${SCRIPT_DIR}/application.yaml" | kubectl apply -f -
 
 echo ""
 echo "==> ArgoCD access:"
-echo "    Via ingress (after DNS): https://argo.swampthing.online"
+echo "    Via ingress (after DNS): https://argo.${DOMAIN}"
 echo "    Via NodePort (direct):   https://${CONTROL_PLANE_IP}:${ARGOCD_PORT}"
 echo "    Username: admin"
 echo -n "    Password: "

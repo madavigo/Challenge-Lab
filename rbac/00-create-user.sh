@@ -5,10 +5,15 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../config.env
+source "${SCRIPT_DIR}/../config.env"
+
 USERNAME="dev-user"
 NAMESPACE="nginx-app"
 CSR_NAME="${USERNAME}-csr"
-CLUSTER_NAME="swampthing-demo"
+# Derive a cluster name from the domain (e.g. swampthing.online → swampthing-demo)
+CLUSTER_NAME="${DOMAIN%%.*}-demo"
 
 echo "==> Generating private key for ${USERNAME}"
 openssl genrsa -out "${USERNAME}.key" 4096

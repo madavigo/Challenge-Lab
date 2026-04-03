@@ -9,7 +9,7 @@ data:
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>swampthing.online — K8s Challenge Lab</title>
+      <title>K8s Challenge Lab</title>
       <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 680px; margin: 80px auto; background: #1a2a2a; color: #c9b99a; line-height: 1.6; padding: 0 20px; }
         h1 { color: #4db8a8; }

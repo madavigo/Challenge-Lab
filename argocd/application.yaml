@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/madavigo/Challenge-Lab
+    repoURL: ${REPO_URL}
     targetRevision: HEAD
     path: nginx
   destination:

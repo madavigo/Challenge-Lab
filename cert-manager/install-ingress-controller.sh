@@ -10,6 +10,12 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# shellcheck source=../config.env
+source "${REPO_ROOT}/config.env"
+
 INGRESS_VERSION="controller-v1.9.4"
 
 echo "==> Installing nginx ingress controller (${INGRESS_VERSION})"
@@ -50,8 +56,9 @@ echo "==> Ingress controller service:"
 kubectl get svc ingress-nginx-controller -n ingress-nginx
 
 echo ""
-echo "==> Next step: create a DNS A record at your registrar:"
-echo "    nginx.swampthing.online → ${WORKER_IP}"
+echo "==> Next step: create DNS CNAME records at your registrar pointing to the NLB:"
+echo "    nginx.${DOMAIN} → <NLB DNS name>"
+echo "    argo.${DOMAIN}  → <NLB DNS name>"
 echo ""
-echo "    Then verify propagation with: dig nginx.swampthing.online +short"
+echo "    Then verify propagation with: dig nginx.${DOMAIN} +short"
 echo "    Once propagated, run: bash cert-manager/install-cert-manager.sh"
