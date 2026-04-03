@@ -86,7 +86,6 @@ data:
         .allow { color: #4db8a8; }
         .deny  { color: #a85050; }
         .tagline { text-align: center; color: #4d7870; font-style: italic; font-size: 0.85em; margin-bottom: 0; }
-        #tls-expiry { color: #c9b99a; }
         a { color: #4db8a8; text-decoration: none; }
         a:hover { text-decoration: underline; }
       </style>
@@ -166,7 +165,7 @@ data:
         </div>
         <div class="card">
           <div class="label">Cert expires</div>
-          <div class="value"><span id="tls-expiry">checking…</span></div>
+          <div class="value">90-day Let's Encrypt cert · renewed automatically at 60 days</div>
         </div>
       </div>
 
@@ -198,23 +197,6 @@ data:
         <img src="https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExejI1Ymk5YW1vb3p5YTcxNHp6eHFuaHg3OXpyc2Vvb2xwam1sYjFtcSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/b5ZNou8CKvBCg/giphy.gif" alt="Swamp Thing" style="max-width: 360px; width: 100%; border-radius: 8px; opacity: 0.9;">
       </div>
       <p class="tagline">~ I am the green. I am the swamp. ~</p>
-
-      <script>
-        // Pull TLS cert expiry from the Security API where available,
-        // otherwise just confirm the connection is secure.
-        try {
-          if (window.location.protocol === 'https:') {
-            // SecurityPolicyViolationEvent isn't the cert API —
-            // we use a fetch to get response headers and show validity window.
-            fetch(window.location.href, { method: 'HEAD' }).then(r => {
-              const el = document.getElementById('tls-expiry');
-              // Browsers don't expose cert expiry via fetch — show a static note
-              // that reflects what cert-manager provides (90-day LE cert, renewed at 60d)
-              el.textContent = '90-day Let\'s Encrypt cert · auto-renewed by cert-manager';
-            });
-          }
-        } catch(e) {}
-      </script>
 
     </body>
     </html>
