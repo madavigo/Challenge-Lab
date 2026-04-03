@@ -18,6 +18,9 @@ echo "==> Waiting for cert-manager deployments to be available (up to 120s)"
 kubectl wait --for=condition=Available deployment --all \
   -n cert-manager --timeout=120s
 
+echo "==> Waiting for cert-manager webhook to be fully ready (30s)"
+sleep 30
+
 echo "==> Applying Let's Encrypt ClusterIssuer"
 kubectl apply -f "${SCRIPT_DIR}/cluster-issuer.yaml"
 

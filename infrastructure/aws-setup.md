@@ -67,6 +67,7 @@ ssh -i ~/.ssh/challenge-lab.pem ubuntu@<WORKER-PUBLIC-IP>
 | 10256 | TCP | Node SG (self) | kube-proxy health check |
 | 179 | TCP | Node SG (self) | Calico BGP |
 | 4789 | UDP | Node SG (self) | Calico VXLAN |
+| 4 (IPIP) | IP | Node SG (self) | Calico IPIP encapsulation — required for pod internet access on AWS |
 | 30000–32767 | TCP | 0.0.0.0/0 | NodePort range |
 | 80 | TCP | 0.0.0.0/0 | HTTP (Let's Encrypt HTTP01 challenge) |
 | 443 | TCP | 0.0.0.0/0 | HTTPS |
@@ -128,6 +129,10 @@ aws ec2 authorize-security-group-ingress --group-id $SG_ID \
 aws ec2 authorize-security-group-ingress --group-id $SG_ID \
   --protocol udp --port 4789 --source-group $SG_ID
 
+# Calico IPIP - self (IP protocol 4, required for pod internet access on AWS)
+aws ec2 authorize-security-group-ingress --group-id $SG_ID \
+  --protocol 4 --port -1 --source-group $SG_ID
+
 # NodePort range - public
 aws ec2 authorize-security-group-ingress --group-id $SG_ID \
   --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0
@@ -185,6 +190,14 @@ W2_ID=$(aws ec2 run-instances \
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-worker-02},{Key=Project,Value=challenge-lab}]' \
   --query 'Instances[0].InstanceId' --output text)
 echo "Worker-02: $W2_ID"
+
+# Disable source/dest check on all nodes — required for Calico pod networking on AWS.
+# Without this, AWS drops pod traffic at the hypervisor because the source IP
+# (192.168.x.x) doesn't match the instance's own IP.
+for ID in $CP_ID $W1_ID $W2_ID; do
+  aws ec2 modify-instance-attribute --instance-id $ID --no-source-dest-check
+done
+echo "Source/dest check disabled on all instances."
 ```
 
 ## Elastic IP
