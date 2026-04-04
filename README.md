@@ -73,7 +73,15 @@ At the end of the full aws-setup.md flow you will have all infrastructure in pla
 
 ### 2. Bootstrap all nodes
 
-SSH into **each node** and clone the repo, then run the prereqs script:
+SSH into **each node** and clone the repo, then run the prereqs script.
+
+> **Tip:** Get all instance IPs in one command:
+> ```bash
+> aws ec2 describe-instances \
+>   --filters "Name=tag:Project,Values=challenge-lab" "Name=instance-state-name,Values=running" \
+>   --query 'Reservations[*].Instances[*].{Name:Tags[?Key==`Name`].Value|[0],InstanceId:InstanceId,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress}' \
+>   --output table
+> ```
 
 ```bash
 ssh -i ~/.ssh/challenge-lab.pem ubuntu@<NODE-IP>
