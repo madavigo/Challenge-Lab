@@ -40,7 +40,7 @@ DNS CNAMEs → NLB:
 
 ## Prerequisites (local machine)
 
-- AWS account with EC2 access and billing enabled
+- New AWS account with EC2 access and $200 in credits with billing enabled for NLB
 - `aws` CLI configured (`aws configure`)
 - `kubectl` and `openssl` installed
 
