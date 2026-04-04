@@ -254,12 +254,21 @@ kubectl get nodes
 
 ### 8. Join worker nodes
 
-On **each worker node**, using the token and hash from the kubeadm init output:
+Using the token and hash from the kubeadm init output, join both workers in parallel from your **local machine**:
 
 ```bash
-cd Challenge-Lab
-CONTROL_PLANE_IP=<private-ip> TOKEN=<token> CA_HASH=<hash> bash cluster/02-join-workers.sh
+for IP in $(aws ec2 describe-instances \
+  --instance-ids $W1_ID $W2_ID \
+  --query 'Reservations[*].Instances[*].PublicIpAddress' \
+  --output text); do
+  ssh -i ~/.ssh/challenge-lab.pem -n -o StrictHostKeyChecking=no ubuntu@${IP} \
+    'cd Challenge-Lab && CONTROL_PLANE_IP=<private-ip> TOKEN=<token> CA_HASH=<hash> bash cluster/02-join-workers.sh' &
+done
+wait
+echo "Workers joined."
 ```
+
+> `CA_HASH` accepts the full `sha256:<hex>` from kubeadm output or just the hex — the script strips the prefix if present.
 
 > `CA_HASH` accepts the full `sha256:<hex>` from kubeadm output or just the hex — the script strips the prefix if present.
 
@@ -267,7 +276,11 @@ CONTROL_PLANE_IP=<private-ip> TOKEN=<token> CA_HASH=<hash> bash cluster/02-join-
 
 ### 9. Install Calico CNI
 
-From your **local machine**:
+From your **local machine**. Make sure your kubeconfig is pointing to the new cluster first:
+
+```bash
+scp -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>:~/admin-external.conf ~/.kube/config
+```
 
 ```bash
 bash cluster/03-install-calico.sh
