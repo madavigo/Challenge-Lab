@@ -42,11 +42,9 @@ DNS CNAMEs → NLB:
 
 - AWS account with EC2 access and billing enabled
 - `aws` CLI configured (`aws configure`)
-- `kubectl` installed
-- `openssl` installed
-- SSH key pair created: `aws ec2 create-key-pair --key-name challenge-lab --query 'KeyMaterial' --output text > ~/.ssh/challenge-lab.pem && chmod 400 ~/.ssh/challenge-lab.pem`
+- `kubectl` and `openssl` installed
 
-All scripts source `config.env` automatically, falling back to `config.env.example` if it doesn't exist. The example file has the correct values for this repo, so a fresh `git clone` works without any extra setup. To override (e.g. for your own fork), copy and edit:
+All scripts source `config.env` automatically, falling back to `config.env.example` if it doesn't exist. The example file has the correct values for this repo so a fresh `git clone` works without any extra setup. To override (e.g. for your own fork), copy and edit:
 
 ```bash
 cp config.env.example config.env
@@ -57,48 +55,169 @@ cp config.env.example config.env
 
 ## Deployment Steps
 
-### 1. AWS Infrastructure
+### 1. Create SSH Key Pair
 
-Follow [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md) completely before moving to step 2. It covers all AWS provisioning in order:
-
-- Security group and all inbound rules
-- 3 EC2 instances (control-plane, worker-01, worker-02 — all t3.small)
-- Elastic IP associated to control-plane
-- Network Load Balancer — optional but recommended (see [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md#network-load-balancer)); provisioned after step 7, then return here
-- DNS CNAME records pointing to the NLB
-
-At the end of the full aws-setup.md flow you will have all infrastructure in place and DNS propagated.
+```bash
+aws ec2 create-key-pair \
+  --key-name challenge-lab \
+  --query 'KeyMaterial' \
+  --output text > ~/.ssh/challenge-lab.pem && \
+chmod 400 ~/.ssh/challenge-lab.pem
+```
 
 ---
 
-### 2. Bootstrap all nodes
-
-SSH into **each node** and clone the repo, then run the prereqs script.
-
-> **Tip:** Get all instance IPs in one command (filters by Name tag — works even if Project tag is missing):
-> ```bash
-> aws ec2 describe-instances \
->   --filters "Name=tag:Name,Values=k8s-control-plane,k8s-worker-01,k8s-worker-02" \
->   --query 'Reservations[*].Instances[*].{Name:Tags[?Key==`Name`].Value|[0],InstanceId:InstanceId,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress,State:State.Name}' \
->   --output table
-> ```
+### 2. Gather AWS Info
 
 ```bash
-ssh -i ~/.ssh/challenge-lab.pem ubuntu@<NODE-IP>
+# Latest Ubuntu 22.04 LTS AMI
+aws ec2 describe-images \
+  --owners 099720109477 \
+  --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
+            "Name=state,Values=available" \
+  --query 'sort_by(Images, &CreationDate)[-1].{AMI:ImageId,Name:Name,Date:CreationDate}' \
+  --output table
+
+# Default VPC and subnet
+aws ec2 describe-vpcs --filters "Name=isDefault,Values=true" \
+  --query 'Vpcs[0].{VpcId:VpcId,CIDR:CidrBlock}' --output table
+
+aws ec2 describe-subnets --filters "Name=defaultForAz,Values=true" \
+  --query 'Subnets[0].{SubnetId:SubnetId,AZ:AvailabilityZone}' --output table
 ```
 
-Then on each node:
+Save `AMI`, `VpcId`, and `SubnetId` — you'll use them in the next steps.
+
+---
+
+### 3. Create Security Group
+
+```bash
+SG_ID=$(aws ec2 create-security-group \
+  --group-name k8s-challenge-lab \
+  --description "Kubernetes challenge lab - control-plane and workers" \
+  --vpc-id <VPC_ID> \
+  --query 'GroupId' --output text)
+echo "Security Group ID: $SG_ID"
+```
+
+Apply all inbound rules one at a time:
+
+```bash
+MY_IP=$(curl -s https://checkip.amazonaws.com)
+
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr ${MY_IP}/32
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 6443 --cidr ${MY_IP}/32
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 6443 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 2379-2380 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 10250-10259 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 10256 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 179 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol udp --port 4789 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol 4 --port -1 --source-group $SG_ID
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 80 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 443 --cidr 0.0.0.0/0
+```
+
+| Port/Range | Protocol | Source | Purpose |
+|---|---|---|---|
+| 22 | TCP | Your IP | SSH |
+| 6443 | TCP | Your IP | Kubernetes API (external kubectl) |
+| 6443 | TCP | Node SG | Kubernetes API (worker → control-plane) |
+| 2379–2380 | TCP | Node SG | etcd peer communication |
+| 10250–10259 | TCP | Node SG | kubelet, scheduler, controller manager |
+| 10256 | TCP | Node SG | kube-proxy health check |
+| 179 | TCP | Node SG | Calico BGP |
+| 4789 | UDP | Node SG | Calico VXLAN |
+| 4 (IPIP) | IP | Node SG | Calico IPIP — required for pod internet on AWS |
+| 30000–32767 | TCP | 0.0.0.0/0 | NodePort range |
+| 80 | TCP | 0.0.0.0/0 | HTTP (Let's Encrypt HTTP-01 challenge) |
+| 443 | TCP | 0.0.0.0/0 | HTTPS |
+
+> **Note:** "Node SG" means the security group itself as source — allows all instances in the group to communicate freely on those ports.
+
+---
+
+### 4. Launch EC2 Instances
+
+```bash
+AMI=<ami-id>
+SG_ID=<sg-id>
+SUBNET=<subnet-id>
+
+CP_ID=$(aws ec2 run-instances \
+  --image-id $AMI --instance-type t3.small --key-name challenge-lab \
+  --security-group-ids $SG_ID --subnet-id $SUBNET --associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-control-plane},{Key=Project,Value=challenge-lab}]' \
+  --query 'Instances[0].InstanceId' --output text)
+echo "Control-plane: $CP_ID"
+
+W1_ID=$(aws ec2 run-instances \
+  --image-id $AMI --instance-type t3.small --key-name challenge-lab \
+  --security-group-ids $SG_ID --subnet-id $SUBNET --associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-worker-01},{Key=Project,Value=challenge-lab}]' \
+  --query 'Instances[0].InstanceId' --output text)
+echo "Worker-01: $W1_ID"
+
+W2_ID=$(aws ec2 run-instances \
+  --image-id $AMI --instance-type t3.small --key-name challenge-lab \
+  --security-group-ids $SG_ID --subnet-id $SUBNET --associate-public-ip-address \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k8s-worker-02},{Key=Project,Value=challenge-lab}]' \
+  --query 'Instances[0].InstanceId' --output text)
+echo "Worker-02: $W2_ID"
+```
+
+Disable source/dest check on all nodes — required for Calico pod networking on AWS:
+
+```bash
+for ID in $CP_ID $W1_ID $W2_ID; do
+  aws ec2 modify-instance-attribute --instance-id $ID --no-source-dest-check
+done
+echo "Source/dest check disabled."
+```
+
+---
+
+### 5. Allocate Elastic IP
+
+Assign an Elastic IP to the control-plane. This keeps the kubeconfig valid across reboots and ensures the API server certificate SANs remain valid.
+
+```bash
+aws ec2 allocate-address --domain vpc
+# Note the AllocationId
+
+aws ec2 associate-address \
+  --instance-id $CP_ID \
+  --allocation-id <AllocationId>
+```
+
+---
+
+### 6. Bootstrap all nodes
+
+Get all instance IPs:
+
+```bash
+aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=k8s-control-plane,k8s-worker-01,k8s-worker-02" \
+  --query 'Reservations[*].Instances[*].{Name:Tags[?Key==`Name`].Value|[0],InstanceId:InstanceId,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress,State:State.Name}' \
+  --output table
+```
+
+SSH into each node and run (can be done in parallel):
+
 ```bash
 git clone https://github.com/madavigo/Challenge-Lab.git
 cd Challenge-Lab
 bash cluster/00-prereqs.sh
 ```
 
-Do this for all three nodes (control-plane and both workers). Can be done in parallel.
+Installs: containerd, kubeadm/kubelet/kubectl (v1.29), kernel modules, sysctl, disables swap.
 
 ---
 
-### 3. Initialize the control plane
+### 7. Initialize the control plane
 
 On the **control-plane node only**:
 
@@ -118,7 +237,7 @@ Copy the external kubeconfig to your local machine:
 scp -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>:~/admin-external.conf ~/.kube/config
 ```
 
-Verify from your local machine:
+Verify:
 ```bash
 kubectl get nodes
 # control-plane shows NotReady — expected until Calico is installed
@@ -126,7 +245,7 @@ kubectl get nodes
 
 ---
 
-### 4. Join worker nodes
+### 8. Join worker nodes
 
 On **each worker node**, using the token and hash from the kubeadm init output:
 
@@ -135,9 +254,11 @@ cd Challenge-Lab
 CONTROL_PLANE_IP=<private-ip> TOKEN=<token> CA_HASH=<hash> bash cluster/02-join-workers.sh
 ```
 
+> `CA_HASH` accepts the full `sha256:<hex>` from kubeadm output or just the hex — the script strips the prefix if present.
+
 ---
 
-### 5. Install Calico CNI
+### 9. Install Calico CNI
 
 From your **local machine**:
 
@@ -148,12 +269,11 @@ bash cluster/03-install-calico.sh
 Verify all nodes are Ready:
 ```bash
 kubectl get nodes
-# All three should show Ready
 ```
 
 ---
 
-### 6. Apply RBAC and create dev-user
+### 10. Apply RBAC and create dev-user
 
 On the **control-plane node**:
 
@@ -168,15 +288,14 @@ This creates:
 - `nginx-deployer` Role and RoleBinding (scoped to `nginx-app` only)
 - Calico NetworkPolicy (deny-all ingress except from ingress controller)
 - `dev-user` certificate via the Kubernetes CSR workflow
-- `dev-user-kubeconfig.yaml` (gitignored — contains private key)
+- `dev-user-kubeconfig.yaml`
 
 Copy the kubeconfig to your local machine:
 ```bash
 scp -i ~/.ssh/challenge-lab.pem ubuntu@<ELASTIC-IP>:~/Challenge-Lab/dev-user-kubeconfig.yaml rbac/dev-user-kubeconfig.yaml
-# Note: the file is written to ~/Challenge-Lab/ (the script's working directory)
 ```
 
-Verify access boundaries from local machine:
+Verify access boundaries:
 ```bash
 kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i create deployments -n nginx-app  # yes
 kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i create deployments -n default    # no
@@ -186,7 +305,7 @@ kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i get nodes         
 
 ---
 
-### 7. Install ingress controller and cert-manager
+### 11. Install ingress controller
 
 From your **local machine**:
 
@@ -194,20 +313,62 @@ From your **local machine**:
 bash cert-manager/install-ingress-controller.sh
 ```
 
-This script auto-detects a worker node's public IP via AWS CLI and patches the ingress service with `externalIPs`. On bare kubeadm there is no cloud LB controller, so the LoadBalancer service would otherwise stay `<pending>` indefinitely.
+---
 
-**Load balancer — recommended:** Return to [`infrastructure/aws-setup.md`](infrastructure/aws-setup.md#network-load-balancer) and follow the **Network Load Balancer** and **DNS** sections. An NLB is the right choice for kubeadm on AWS — it provides stable DNS, routes across both workers, and is required for Let's Encrypt HTTP-01 to succeed. It costs ~$0.20/day and is cleaned up by `infrastructure/teardown.sh`.
+### 12. Provision NLB
 
-> Alternatives exist — `externalIPs` (patch the ingress service with a worker's public IP directly) or raw NodePort access — but both are single-node and not suitable for a reproducible demo. The NLB is the production-appropriate path on AWS without EKS.
+Get the ingress controller NodePorts:
 
-Then install cert-manager:
 ```bash
-bash cert-manager/install-cert-manager.sh
+HTTP_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+HTTPS_NP=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+  -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
+echo "HTTP: $HTTP_NP  HTTPS: $HTTPS_NP"
+```
+
+Provision the NLB:
+
+```bash
+HTTP_NP=<http-nodeport> HTTPS_NP=<https-nodeport> bash infrastructure/provision-nlb.sh
+```
+
+The script looks up VPC, subnet, and worker IDs automatically, creates target groups, registers both workers, creates the NLB, and attaches listeners on ports 80 and 443. It prints the NLB DNS name at the end.
+
+> **Why NLB?** On bare kubeadm there is no cloud LB controller — a LoadBalancer service stays `<pending>` indefinitely. The NLB routes external traffic to NodePorts on both workers and provides a stable DNS name for Let's Encrypt HTTP-01 challenges. Alternatives (externalIPs, raw NodePort) are single-node and not suitable for a reproducible demo.
+
+---
+
+### 13. Configure DNS
+
+Add two CNAME records at your registrar pointing to the NLB DNS name:
+
+- `nginx.<domain>` → `<NLB DNS name>`
+- `argo.<domain>` → `<NLB DNS name>`
+
+TTL: 300 seconds. Use CNAME (not A record) — NLB IPs change.
+
+Verify propagation:
+```bash
+dig nginx.swampthing.online +short
+dig argo.swampthing.online +short
 ```
 
 ---
 
-### 8. Deploy Nginx as dev-user
+### 14. Install cert-manager
+
+From your **local machine**:
+
+```bash
+bash cert-manager/install-cert-manager.sh
+```
+
+Installs cert-manager v1.14.0 + Let's Encrypt ClusterIssuer. Reads `ACME_EMAIL` from `config.env`.
+
+---
+
+### 15. Deploy Nginx as dev-user
 
 From your **local machine**:
 
@@ -215,7 +376,7 @@ From your **local machine**:
 bash nginx/deploy-as-dev-user.sh rbac/dev-user-kubeconfig.yaml
 ```
 
-Watch TLS certificate issuance (as admin):
+Watch TLS certificate issuance:
 ```bash
 kubectl get certificate -n nginx-app --watch
 # READY transitions False → True within ~60s once DNS has propagated
@@ -224,12 +385,11 @@ kubectl get certificate -n nginx-app --watch
 Test:
 ```bash
 curl -I https://nginx.swampthing.online
-# Expect HTTP/2 200 with a valid Let's Encrypt cert
 ```
 
 ---
 
-### 9. Install ArgoCD (GitOps)
+### 16. Install ArgoCD (GitOps)
 
 From your **local machine**:
 
@@ -237,20 +397,27 @@ From your **local machine**:
 bash argocd/install-argocd.sh
 ```
 
-This installs ArgoCD, patches the service to NodePort, applies the ArgoCD ingress for `argo.swampthing.online`, and creates an Application that watches the `nginx/` directory of this repo.
-
 > **Expected warning:** During install you may see `The CustomResourceDefinition "applicationsets.argoproj.io" is invalid: metadata.annotations: Too long: must have at most 262144 bytes`. This is a known ArgoCD CRD size issue and is non-fatal — the script handles it with `|| true` and all components install correctly.
 
-The script prints the ArgoCD UI URL and initial admin password. You can also access it directly via NodePort:
+Get the initial admin password:
 ```bash
-ARGOCD_PORT=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}')
-echo "https://<ELASTIC-IP>:${ARGOCD_PORT}"
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d && echo
 ```
 
 ArgoCD UI: `https://argo.swampthing.online` (username: `admin`)
 
-To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — watch ArgoCD detect drift and sync within ~3 minutes.
+To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — ArgoCD detects drift and syncs within ~3 minutes.
+
+---
+
+## Teardown
+
+```bash
+bash infrastructure/teardown.sh
+```
+
+Removes all EC2 instances, Elastic IP, NLB, target groups, security group, and key pair.
 
 ---
 
@@ -258,8 +425,6 @@ To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — w
 
 ```
 .
-├── infrastructure/
-│   └── aws-setup.md                ← EC2 provisioning, security groups, DNS
 ├── cluster/
 │   ├── 00-prereqs.sh               ← Run on ALL nodes after cloning repo
 │   ├── 01-init-control-plane.sh    ← Run on control-plane only
@@ -286,7 +451,12 @@ To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — w
 │   ├── application.yaml
 │   ├── argocd-ingress.yaml
 │   └── install-argocd.sh
-├── DESIGN.md                       ← Design decisions and tradeoffs
+├── infrastructure/
+│   ├── provision-nlb.sh            ← NLB provisioning script
+│   └── teardown.sh                 ← Full teardown
+├── config.env.example
+├── DESIGN.md
+├── QUICKSTART.md
 └── README.md
 ```
 
@@ -296,18 +466,19 @@ To demo the GitOps loop: edit `nginx/configmap-html.yaml`, commit and push — w
 
 See [`DESIGN.md`](DESIGN.md) for full rationale. Summary:
 
-- **kubeadm** — real production bootstrap, not a wrapper. Exposes the actual K8s primitives.
+- **kubeadm** — real production bootstrap, not a wrapper. Exposes actual K8s primitives.
 - **Calico** — adds NetworkPolicy enforcement; Flannel does not support it.
 - **CSR-based user auth** — native K8s mechanism; no external IdP dependency.
-- **cert-manager + Let's Encrypt** — automated lifecycle management, publicly trusted cert, no browser warnings in the demo.
+- **cert-manager + Let's Encrypt** — automated lifecycle management, publicly trusted cert, no browser warnings.
 - **ArgoCD** — visual GitOps loop that makes the "git as source of truth" story tangible in a 15-minute demo.
+- **AWS NLB** — stable DNS, routes across both workers, required for Let's Encrypt HTTP-01 on bare kubeadm.
 
 ---
 
 ## Security Notes
 
-- Port 22 (SSH) is restricted to your IP only. Port 6443 allows your IP (external kubectl) and the node security group (worker → control-plane communication).
-- `dev-user` has a `Role` (not `ClusterRole`) scoped to `nginx-app` only. They cannot read secrets, list nodes, or access any other namespace.
-- The Calico NetworkPolicy denies all ingress to nginx pods except from the ingress controller namespace.
-- Certificates are issued with a 24-hour TTL (`expirationSeconds: 86400`). In production, rotation would be automated.
+- Port 22 and 6443 are restricted to WAN IP only for external access. Workers reach the API server via the node security group rule.
+- `dev-user` has a `Role` (not `ClusterRole`) scoped to `nginx-app` only. Cannot read secrets, list nodes, or access other namespaces.
+- Calico NetworkPolicy denies all ingress to nginx pods except from the ingress controller namespace.
+- Certificates issued with 24-hour TTL (`expirationSeconds: 86400`). In production, rotation would be automated.
 - `dev-user-kubeconfig.yaml` and `*.key`/`*.crt` files are excluded from git via `.gitignore`.

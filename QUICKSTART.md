@@ -1,6 +1,6 @@
 # Quickstart — Challenge Lab
 
-Condensed deployment reference. Full details in [README.md](README.md) and [infrastructure/aws-setup.md](infrastructure/aws-setup.md).
+Condensed deployment reference. Full details in [README.md](README.md).
 
 ---
 
@@ -28,7 +28,7 @@ cd Challenge-Lab
 
 ## Phase 1 — AWS Infrastructure
 
-Full commands in [infrastructure/aws-setup.md](infrastructure/aws-setup.md).
+Full commands in [README.md](README.md) steps 1–5.
 
 ```bash
 # Get AMI, VPC, subnet
@@ -53,7 +53,7 @@ SG_ID=$(aws ec2 create-security-group \
   --query 'GroupId' --output text)
 ```
 
-Apply all inbound rules (SSH, K8s API, etcd, kubelet, Calico BGP/VXLAN/IPIP, NodePorts, HTTP, HTTPS) — see [infrastructure/aws-setup.md](infrastructure/aws-setup.md#setting-security-group-rules).
+Apply all inbound rules (SSH, K8s API, etcd, kubelet, Calico BGP/VXLAN/IPIP, NodePorts, HTTP, HTTPS) — see [README.md step 3](README.md#3-create-security-group).
 
 ```bash
 # Launch 3x t3.small instances
