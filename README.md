@@ -75,11 +75,11 @@ At the end of the full aws-setup.md flow you will have all infrastructure in pla
 
 SSH into **each node** and clone the repo, then run the prereqs script.
 
-> **Tip:** Get all instance IPs in one command:
+> **Tip:** Get all instance IPs in one command (filters by Name tag — works even if Project tag is missing):
 > ```bash
 > aws ec2 describe-instances \
->   --filters "Name=tag:Project,Values=challenge-lab" "Name=instance-state-name,Values=running" \
->   --query 'Reservations[*].Instances[*].{Name:Tags[?Key==`Name`].Value|[0],InstanceId:InstanceId,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress}' \
+>   --filters "Name=tag:Name,Values=k8s-control-plane,k8s-worker-01,k8s-worker-02" \
+>   --query 'Reservations[*].Instances[*].{Name:Tags[?Key==`Name`].Value|[0],InstanceId:InstanceId,PrivateIP:PrivateIpAddress,PublicIP:PublicIpAddress,State:State.Name}' \
 >   --output table
 > ```
 
