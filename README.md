@@ -101,23 +101,23 @@ SG_ID=$(aws ec2 create-security-group \
 echo "Security Group ID: $SG_ID"
 ```
 
-Apply all inbound rules one at a time:
+Apply all inbound rules:
 
 ```bash
-MY_IP=$(curl -s https://checkip.amazonaws.com)
-
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr ${MY_IP}/32
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 6443 --cidr ${MY_IP}/32
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 6443 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 2379-2380 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 10250-10259 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 10256 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 179 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol udp --port 4789 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol 4 --port -1 --source-group $SG_ID
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 80 --cidr 0.0.0.0/0
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 443 --cidr 0.0.0.0/0
+MY_IP=$(curl -s https://checkip.amazonaws.com) && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr ${MY_IP}/32 && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 6443 --cidr ${MY_IP}/32 && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 6443 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 2379-2380 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 10250-10259 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 10256 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 179 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol udp --port 4789 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol 4 --port -1 --source-group $SG_ID && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 30000-32767 --cidr 0.0.0.0/0 && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 80 --cidr 0.0.0.0/0 && \
+aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 443 --cidr 0.0.0.0/0 && \
+echo "All security group rules applied."
 ```
 
 | Port/Range | Protocol | Source | Purpose |
@@ -205,12 +205,19 @@ aws ec2 describe-instances \
   --output table
 ```
 
-SSH into each node and run (can be done in parallel):
+Bootstrap all three nodes in parallel (replace IPs with your Elastic IP for control-plane and public IPs for workers):
 
 ```bash
-git clone https://github.com/madavigo/Challenge-Lab.git
-cd Challenge-Lab
-bash cluster/00-prereqs.sh
+EIP=<elastic-ip>
+W1_IP=<worker-01-public-ip>
+W2_IP=<worker-02-public-ip>
+
+for IP in $EIP $W1_IP $W2_IP; do
+  ssh -i ~/.ssh/challenge-lab.pem -n -o StrictHostKeyChecking=no ubuntu@${IP} \
+    'rm -rf Challenge-Lab && git clone https://github.com/madavigo/Challenge-Lab.git && cd Challenge-Lab && bash cluster/00-prereqs.sh' &
+done
+wait
+echo "All nodes bootstrapped."
 ```
 
 Installs: containerd, kubeadm/kubelet/kubectl (v1.29), kernel modules, sysctl, disables swap.
