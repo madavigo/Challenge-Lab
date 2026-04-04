@@ -323,6 +323,13 @@ kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i get secrets -n ngi
 kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i get nodes                        # no
 ```
 
+> **Tip:** Check the dev-user certificate validity dates:
+> ```bash
+> kubectl config view --kubeconfig=rbac/dev-user-kubeconfig.yaml --raw \
+>   -o jsonpath='{.users[0].user.client-certificate-data}' \
+>   | base64 -d | openssl x509 -noout -dates
+> ```
+
 ---
 
 ### 11. Install ingress controller
