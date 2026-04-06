@@ -9,7 +9,7 @@ data:
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>K8s Challenge Lab</title>
+      <title>Hello Demo Viwers!</title>
       <style>
         *, *::before, *::after { box-sizing: border-box; }
         body {
