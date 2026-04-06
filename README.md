@@ -327,7 +327,7 @@ kubectl --kubeconfig=rbac/dev-user-kubeconfig.yaml auth can-i get nodes         
 > ```bash
 > kubectl config view --kubeconfig=rbac/dev-user-kubeconfig.yaml --raw \
 >   -o jsonpath='{.users[0].user.client-certificate-data}' \
->   | base64 -d | openssl x509 -noout -dates
+>   | base64 -d | openssl x509 -noout -dates --subject
 > ```
 
 ---
