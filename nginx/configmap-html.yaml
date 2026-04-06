@@ -93,6 +93,7 @@ data:
     <body>
 
       <h1>Kubernetes Challenge Lab <span class="badge">LIVE</span></h1>
+      <h1>DEMO TEST</h2>
       <p class="subtitle">
         A production-realistic kubeadm cluster on AWS — certificate auth, RBAC, GitOps, TLS.
       </p>
